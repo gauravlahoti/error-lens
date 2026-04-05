@@ -1,0 +1,9 @@
+[project]
+name = "error-kb-toolbox"
+version = "0.1.0"
+description = "MCP Toolbox for Databases deployment providing semantic error search, fix tracking, and open-case management over AlloyDB with pgvector embeddings"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "toolbox-core>=1.0.0",
+]

@@ -1,0 +1,10 @@
+[project]
+name = "error-lens-agent"
+version = "0.1.0"
+description = "ErrorLens — a multi-agent GCP error triage system built with Google ADK. Classifies GCP errors, researches fixes across official docs and community sources in parallel, and synthesises ranked resolutions with confidence scoring."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "google-adk[a2a,extensions]>=1.28.1",
+    "python-dotenv>=1.2.2",
+]

@@ -1,0 +1,2 @@
+google-adk[a2a,extensions]>=1.28.1
+python-dotenv>=1.2.2
