@@ -299,7 +299,7 @@ If a fix resolves your issue, reply with your Case ID so we can confirm the reso
 
 ---
 
-> Resolution confidence: **[overall_confidence × 100]%** · Sources agreed: **[yes/no]** · Researched by **ErrorLens**
+> **Confidence:** [overall_confidence × 100]% · **[count] fixes** ranked from GCP docs and community research · Reply with your **Case ID** once resolved
 
 Rules:
 - Table column alignment MUST use exactly: |:---:|:---|:---:|:---:|:---:|

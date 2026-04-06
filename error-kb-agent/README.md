@@ -48,8 +48,8 @@ A conversational agent that helps engineering teams search, record, and manage G
 ### 1. Clone and navigate
 
 ```bash
-git clone <your-repo-url>
-cd adk-samples/error-kb-agent
+git clone https://github.com/gauravlahoti/error-lens.git
+cd error-lens/error-kb-agent
 ```
 
 ### 2. Install dependencies

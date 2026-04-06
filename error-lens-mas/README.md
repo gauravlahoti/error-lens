@@ -12,21 +12,21 @@ It searches official GCP documentation through Developer Knowledge MCP, gathers 
 root_agent (LlmAgent — router)
 │
 ├── quick_scan (SequentialAgent — fast triage + KB lookup)
-│   ├── signal_extractor_agent     step 1 — extracts structured error context
-│   └── kb_search_agent (LlmAgent) step 2 — searches KB, formats results
-│       └── kb_search_remote         → RemoteA2aAgent → Error KB Agent on Cloud Run
+│   ├── signal_extractor_agent (LlmAgent)       step 1 — extracts structured error context
+│   └── kb_search_agent (LlmAgent)              step 2 — searches KB, formats results
+│       └── kb_search_remote (RemoteA2aAgent)      → Error KB Agent on Cloud Run
 │
 ├── sage_pipeline (SequentialAgent — full research pipeline)
-│   ├── deep_search_agent          step 1 — parallel research
-│   │   ├── gcp_knowledge_agent        GCP docs MCP search → formatter (Sequential)
-│   │   └── community_search_agent     web search → formatter (Sequential)
-│   ├── research_aggregator_agent  step 2 — synthesises ranked fixes
-│   ├── kb_record_agent (LlmAgent) step 3 — records case, outputs case ID
-│   │   └── kb_record_remote           → RemoteA2aAgent → Error KB Agent on Cloud Run
-│   └── response_presenter_agent   step 4 — formats final diagnostic report
+│   ├── deep_search_agent (ParallelAgent)       step 1 — concurrent research
+│   │   ├── gcp_knowledge_agent (SequentialAgent)    GCP docs MCP search → formatter
+│   │   └── community_search_agent (SequentialAgent) web search → formatter
+│   ├── research_aggregator_agent (LlmAgent)    step 2 — synthesises ranked fixes
+│   ├── kb_record_agent (LlmAgent)              step 3 — records case, outputs case ID
+│   │   └── kb_record_remote (RemoteA2aAgent)      → Error KB Agent on Cloud Run
+│   └── response_presenter_agent (LlmAgent)     step 4 — formats final diagnostic report
 │
 └── kb_resolve_agent (LlmAgent)    resolves existing cases with confirmed fixes
-    └── kb_resolve_remote            → RemoteA2aAgent → Error KB Agent on Cloud Run
+    └── kb_resolve_remote (RemoteA2aAgent)         → Error KB Agent on Cloud Run
 ```
 
 ---
@@ -76,7 +76,7 @@ The `root_agent` handles greetings directly and classifies error-related message
 | `include_contents="none"` | `kb_search_agent`, `response_presenter_agent`, `research_aggregator_agent` | Forces the LLM to reformat sub-agent output rather than echoing it |
 | `output_schema` | Signal extractor, formatters, aggregator, KB recorder | Enforces Pydantic models for structured inter-agent data flow |
 | `output_key` | All schema-producing agents | Writes structured output to session state for downstream agents |
-| `disallow_transfer_to_*` | All pipeline agents + both KB agents | Prevents early bailout — agents must complete their full formatted response before returning |
+| `disallow_transfer_to_*` | All pipeline agents + KB search and record agents | Prevents early bailout — agents must complete their full formatted response before returning |
 
 ---
 
@@ -89,8 +89,6 @@ The `root_agent` handles greetings directly and classifies error-related message
 | `community_research_result` | `web_search_formatter` | `research_aggregator_agent` |
 | `synthesis_result` | `research_aggregator_agent` | `kb_record_agent`, `response_presenter_agent` |
 | `kb_record_result` | `kb_record_agent` | `response_presenter_agent` (case ID in the report) |
-| `kb_resolve_result` | `kb_resolve_agent` | Root agent (confirmation to developer) |
-
 All models are defined in `error_lens_agent/models.py`.
 
 ---
@@ -129,8 +127,8 @@ gcloud services enable discoveryengine.googleapis.com
 ### 1. Clone and navigate
 
 ```bash
-git clone <your-repo-url>
-cd adk-samples/error-lens-mas
+git clone https://github.com/gauravlahoti/error-lens.git
+cd error-lens/error-lens-mas
 ```
 
 ### 2. Install dependencies
@@ -158,8 +156,8 @@ Open `error_lens_agent/.env` and fill in:
 | `DEVELOPER_KNOWLEDGE_API_KEY` | `AIza...` | API key for Developer Knowledge MCP |
 | `KB_AGENT_URL` | `https://error-kb-agent-xxx.run.app` | URL of the deployed Error KB Agent |
 | `GEMINI_MODEL_MAX_REASONING` | `gemini-2.5-flash` | Model for deep reasoning (aggregator) |
-| `GEMINI_MODEL_BALANCED` | `gemini-2.5-flash` | Model for balanced tasks (root, presenter, KB search) |
-| `GEMINI_MODEL_FAST` | `gemini-2.5-flash-lite` | Model for fast tasks (extractor, formatter, KB recorder) |
+| `GEMINI_MODEL_BALANCED` | `gemini-2.5-flash` | Model for balanced tasks (root, presenter, all KB agents) |
+| `GEMINI_MODEL_FAST` | `gemini-2.5-flash-lite` | Model for fast tasks (signal extractor, research formatters) |
 | `GOOGLE_SEARCH_MODEL` | `gemini-2.5-flash` | Model for the `google_search` tool path |
 
 **Optional — Anthropic provider:**
@@ -246,8 +244,8 @@ All runtime constants live in `error_lens_agent/config/config.py` and are overri
 |----------|---------|-------------|
 | `MODEL_PROVIDER` | `gemini` | Provider switch: `gemini` or `anthropic` |
 | `GEMINI_MODEL_MAX_REASONING` | — | Gemini model for deep reasoning |
-| `GEMINI_MODEL_BALANCED` | — | Gemini model for balanced tasks |
-| `GEMINI_MODEL_FAST` | — | Gemini model for fast/lightweight tasks |
+| `GEMINI_MODEL_BALANCED` | — | Gemini model for balanced tasks (root, presenter, all KB agents) |
+| `GEMINI_MODEL_FAST` | — | Gemini model for fast/lightweight tasks (signal extractor, research formatters) |
 | `GOOGLE_SEARCH_MODEL` | `gemini-2.5-flash` | Dedicated model for `google_search` tool |
 | `GOOGLE_CLOUD_REGION` | `us-central1` | GCP region |
 | `DEVELOPER_KNOWLEDGE_API_KEY` | `""` | Auth for Developer Knowledge MCP |

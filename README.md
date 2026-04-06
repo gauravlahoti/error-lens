@@ -18,6 +18,13 @@ Developer
    ▼
 error-lens-mas (ADK Multi-Agent System)
    │
+   │  Internal orchestration:
+   │  ┌─ quick_scan (SequentialAgent) ─── signal extraction → KB search
+   │  ├─ sage_pipeline (SequentialAgent)
+   │  │     └─ deep_search_agent (ParallelAgent) ─── GCP docs + community search
+   │  │     └─ research_aggregator → kb_record → response_presenter
+   │  └─ kb_resolve_agent (LlmAgent) ─── close cases with confirmed fixes
+   │
    │  A2A Protocol
    ▼
 error-kb-agent (ADK + A2A Agent)

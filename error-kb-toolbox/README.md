@@ -50,8 +50,8 @@ All tools belong to a single toolset named **`error-kb-toolbox`**.
 ### 1. Clone and navigate
 
 ```bash
-git clone <your-repo-url>
-cd adk-samples/error-kb-toolbox
+git clone https://github.com/gauravlahoti/error-lens.git
+cd error-lens/error-kb-toolbox
 ```
 
 ### 2. Download the toolbox binary
