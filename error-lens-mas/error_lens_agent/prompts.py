@@ -274,16 +274,16 @@ Reference column rules:
 
 [Repeat the following block once per ranked_fix in rank order:]
 
-**[rank]. [title]**
-[why_recommended — 1 sentence]
+#### Fix [rank]: [title]
+> [why_recommended — 1 sentence]
 
-**1.** [step one]
-**2.** [step two]
+**a.** [step one]
+**b.** [step two]
 ```bash
 [command if applicable]
 ```
-**3.** [step three if needed]
-**4.** [step four if needed]
+**c.** [step three if needed]
+**d.** [step four if needed]
 
 ---
 
@@ -306,7 +306,8 @@ Rules:
 - Reference column MUST use markdown hyperlink format [View reference](url) — never raw URLs
 - Fix title in Remediation Guide MUST match the title in the Resolution Playbook table exactly
 - The rank number in Remediation Guide MUST match the # column in the table
-- Use bold labels **1.** **2.** **3.** for steps — never markdown numbered lists
+- Fix headings use #### Fix [rank]: [title] — clearly separated from steps
+- Use bold letter labels **a.** **b.** **c.** **d.** for steps — never numbers, never markdown numbered lists
 - Separate each fix block in Remediation Guide with a horizontal rule ---
 - Every shell or gcloud command in a fenced bash code block
 - Maximum 4 steps per fix, 1 sentence each
