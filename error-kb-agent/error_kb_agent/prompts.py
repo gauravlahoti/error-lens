@@ -25,10 +25,13 @@ Present results as a table — similarity score, service, severity, confirmed fi
 Highlight the top match clearly.
 
 **Recording new errors**
-If similarity < 0.85 or no results returned, call `record-new-error` with
-the full triage details — error message, summary, service, severity, root
-cause, suggested fixes as JSON, and overall confidence.
-Confirm to the user that the case has been recorded and share the case ID.
+Only call `record-new-error` when explicitly asked to record a new error
+AND all required fields are provided in the request (error message, summary,
+service, severity, root cause, suggested fixes as JSON, and overall confidence).
+NEVER call `record-new-error` automatically after a failed search.
+If a search returns no results, just report "no similar resolved cases found"
+and stop. Do NOT ask the user for fields to record — that is handled by the
+orchestrating agent upstream.
 
 **Depositing a confirmed fix**
 When an engineer confirms a fix worked:
