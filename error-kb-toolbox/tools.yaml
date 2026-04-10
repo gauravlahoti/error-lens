@@ -69,11 +69,12 @@ statement: |
     confirmed_fix = $2,
     fix_source = $3,
     status = 'resolved',
+    overall_confidence = 1.0,
     resolved_at = NOW(),
     embedding = embedding('text-embedding-005',
                 error_summary || ' ' || $2)::vector
   WHERE id = $1::uuid
-  RETURNING id::text AS id, gcp_service, status, confirmed_fix, resolved_at;
+  RETURNING id::text AS id, gcp_service, status, confirmed_fix, overall_confidence, resolved_at;
 ---
 kind: tool
 name: get-open-cases

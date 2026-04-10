@@ -5,7 +5,7 @@ from error_lens_agent.config.config import MODEL_FAST, MODEL_BALANCED, MODEL_MAX
 from error_lens_agent.sub_agents.signal_extractor_agent import signal_extractor_agent
 from error_lens_agent.sub_agents.deep_search_agent import deep_search_agent
 from error_lens_agent.sub_agents.research_aggregator_agent import research_aggregator_agent
-from error_lens_agent.sub_agents.knowledge_bank_agent import kb_record_agent, kb_search_agent, kb_resolve_agent
+from error_lens_agent.sub_agents.knowledge_bank_agent import kb_record_agent, kb_search_agent, kb_resolve_remote
 from error_lens_agent.prompts import (
     root_agent_instruction,
     response_presenter_instruction,
@@ -58,6 +58,6 @@ root_agent = LlmAgent(
     model=MODEL_BALANCED,
     description="ErrorLens — routes developer requests to the right agent.",
     instruction=root_agent_instruction,
-    sub_agents=[quick_scan, sage_pipeline, kb_resolve_agent],
+    sub_agents=[quick_scan, sage_pipeline, kb_resolve_remote],
 )
 

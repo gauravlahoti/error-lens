@@ -5,7 +5,7 @@ from google.adk.agents.remote_a2a_agent import RemoteA2aAgent, AGENT_CARD_WELL_K
 
 from error_lens_agent.config.config import MODEL_FAST, MODEL_BALANCED, KB_AGENT_URL
 from error_lens_agent.models import kb_record_result
-from error_lens_agent.prompts import kb_record_instruction, kb_resolve_instruction, kb_search_instruction
+from error_lens_agent.prompts import kb_record_instruction, kb_search_instruction
 
 # =============================================================================
 # Knowledge bank recorder — records new errors after synthesis (A2A)
@@ -20,7 +20,7 @@ kb_record_remote = RemoteA2aAgent(
 kb_record_agent = LlmAgent(
     name="kb_record_agent",
     model=MODEL_BALANCED,
-    description="Records the triaged error into the knowledge bank after synthesis.",
+    description="Records the triaged error into the knowledge bank.",
     instruction=kb_record_instruction,
     output_schema=kb_record_result,
     output_key="kb_record_result",
@@ -55,15 +55,7 @@ kb_search_agent = LlmAgent(
 # =============================================================================
 kb_resolve_remote = RemoteA2aAgent(
     name="kb_resolve_remote",
-    description="Remote agent for depositing confirmed fixes into the knowledge bank.",
+    description="Remote agent for resolving cases and listing open cases in the knowledge bank.",
     agent_card=f"{KB_AGENT_URL}{AGENT_CARD_WELL_KNOWN_PATH}",
     use_legacy=True,
-)
-
-kb_resolve_agent = LlmAgent(
-    name="kb_resolve_agent",
-    model=MODEL_BALANCED,
-    description="Resolves an existing case by depositing the confirmed fix into the knowledge bank.",
-    instruction=kb_resolve_instruction,
-    sub_agents=[kb_resolve_remote],
 )
