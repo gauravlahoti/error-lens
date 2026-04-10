@@ -240,5 +240,5 @@ error-kb-toolbox/
 
 ## Related
 
-- [Error KB Agent](../error-kb-agent/README.md) — ADK agent that wraps this toolbox and exposes it via A2A
+- [Error KB Agent](../error-kb-agent/README.md) — ADK agent that wraps this toolbox and exposes it via A2A, using L1/L2/L3 skills for runtime workflow discovery
 - [ErrorLens MAS](../error-lens-mas/README.md) — Multi-agent pipeline that triages GCP errors and populates the knowledge bank

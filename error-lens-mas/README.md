@@ -25,8 +25,8 @@ root_agent (LlmAgent — router)
 │   │   └── kb_record_remote (RemoteA2aAgent)      → Error KB Agent on Cloud Run
 │   └── response_presenter_agent (LlmAgent)     step 4 — formats final diagnostic report
 │
-└── kb_resolve_agent (LlmAgent)    resolves existing cases with confirmed fixes
-    └── kb_resolve_remote (RemoteA2aAgent)         → Error KB Agent on Cloud Run
+└── kb_resolve_remote (RemoteA2aAgent)    resolves/lists cases via direct A2A transfer
+       → Error KB Agent on Cloud Run (uses L1/L3 skills internally)
 ```
 
 ---
@@ -39,7 +39,7 @@ The `root_agent` handles greetings directly and classifies error-related message
 |--------|-------|-------------|
 | **General / greeting** | `root_agent` (self) | Welcomes the developer, explains capabilities, asks for error details |
 | **New error** | `quick_scan` → `sage_pipeline` | Extracts structured error context, then searches the knowledge bank. If a confident match (similarity ≥ 0.85) returns, presents it with follow-up options. If no match or the developer wants deeper investigation, routes to the full pipeline. |
-| **Resolve a case** | `kb_resolve_agent` | Developer has a case ID and a confirmed fix — deposits the fix into the knowledge bank |
+| **Resolve a case** | `kb_resolve_remote` | Developer has a case ID and a confirmed fix — transfers directly to the KB agent which handles the multi-turn resolution via its L3 resolve-case skill |
 
 ---
 
@@ -47,21 +47,20 @@ The `root_agent` handles greetings directly and classifies error-related message
 
 | Agent | Type | Role |
 |-------|------|------|
-| `root_agent` | `LlmAgent` | Handles greetings, routes to `quick_scan`, `sage_pipeline`, or `kb_resolve_agent` |
+| `root_agent` | `LlmAgent` | Handles greetings, routes to `quick_scan`, `sage_pipeline`, or `kb_resolve_remote` |
 | `quick_scan` | `SequentialAgent` | Extracts error context → searches knowledge bank (signal extractor + KB search) |
 | `signal_extractor_agent` | `LlmAgent` | Parses raw error into `error_triage_result` structured output |
 | `kb_search_agent` | `LlmAgent` | Formats KB search results and presents follow-up options |
-| `kb_search_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for searching |
+| `kb_search_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for searching (triggers L1 search-errors skill) |
 | `sage_pipeline` | `SequentialAgent` | Full research pipeline: deep search → aggregate → record → present |
 | `gcp_knowledge_agent` | `SequentialAgent` | Queries Developer Knowledge MCP then formats into `gcp_knowledge_research_result` |
 | `community_search_agent` | `SequentialAgent` | Runs web search then formats into `community_research_result` |
 | `deep_search_agent` | `ParallelAgent` | Runs GCP docs and community search concurrently |
 | `research_aggregator_agent` | `LlmAgent` | Aggregates research, ranks fixes, produces `synthesis_result` |
-| `kb_record_agent` | `LlmAgent` | Records the triaged error in the knowledge bank, outputs `kb_record_result` with case ID |
-| `kb_record_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for recording |
+| `kb_record_agent` | `LlmAgent` | Extracts fields from state, delegates to A2A, returns `kb_record_result` with case ID |
+| `kb_record_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for recording (triggers L2 log-error skill) |
 | `response_presenter_agent` | `LlmAgent` | Formats the final developer-facing diagnostic report with case tracking |
-| `kb_resolve_agent` | `LlmAgent` | Collects case ID + confirmed fix, deposits into knowledge bank via `kb_resolve_remote` |
-| `kb_resolve_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for depositing fixes |
+| `kb_resolve_remote` | `RemoteA2aAgent` | Direct A2A transfer to Error KB Agent for case resolution and open case listing (triggers L1 open-cases or L3 resolve-case skills) |
 
 ---
 
@@ -72,7 +71,8 @@ The `root_agent` handles greetings directly and classifies error-related message
 | `SequentialAgent` | `sage_pipeline`, `community_search_agent`, `gcp_knowledge_agent` | Preserves required execution order |
 | `ParallelAgent` | `deep_search_agent` | Reduces latency by researching multiple sources concurrently |
 | `RemoteA2aAgent` | `kb_search_remote`, `kb_record_remote`, `kb_resolve_remote` | Connects to the Error KB Agent on Cloud Run via A2A protocol |
-| `LlmAgent` wrapper | `kb_search_agent`, `kb_record_agent`, `kb_resolve_agent` | Wraps remote agents to add formatting, structured output, and transfer control |
+| `LlmAgent` wrapper | `kb_search_agent`, `kb_record_agent` | Wraps remote agents to add formatting, structured output, and transfer control |
+| Direct `RemoteA2aAgent` | `kb_resolve_remote` | No wrapper needed — root agent transfers directly; KB agent's L3 skill handles the multi-turn conversation |
 | `include_contents="none"` | `kb_search_agent`, `response_presenter_agent`, `research_aggregator_agent` | Forces the LLM to reformat sub-agent output rather than echoing it |
 | `output_schema` | Signal extractor, formatters, aggregator, KB recorder | Enforces Pydantic models for structured inter-agent data flow |
 | `output_key` | All schema-producing agents | Writes structured output to session state for downstream agents |
