@@ -2,7 +2,7 @@
 
 A conversational agent that helps engineering teams search, record, and manage GCP error resolutions from a persistent knowledge bank. Built with [Google ADK](https://github.com/google/adk-python), backed by AlloyDB via [MCP Toolbox for Databases](https://github.com/googleapis/genai-toolbox), and exposed as a remote [A2A](https://google.github.io/A2A/) service on Cloud Run.
 
-The agent uses ADK's **skills system** to discover workflows at runtime, with **L1 / L2 / L3 skill tiers** that separate simple lookups from guided multi-step conversations. Code-level callbacks enforce skill loading and redact internal names before they reach end users.
+The agent uses ADK's **skills system** to discover workflows at runtime via **progressive disclosure** — skill names are auto-injected on every request (L1), detailed instructions are loaded on demand (L2), and reference guides provide formatting and validation rules (L3). A code-level callback enforces skill loading before any domain tool can run.
 
 ---
 
@@ -24,10 +24,10 @@ The agent uses ADK's **skills system** to discover workflows at runtime, with **
 
 The agent does **not** hard-code tool names in its instruction. Instead it discovers capabilities at runtime through ADK's `SkillToolset`:
 
-1. **`list_skills`** — returns available skills with descriptions.
-2. **`load_skill`** — loads a skill's `SKILL.md` which lists tools, steps, and rules.
-3. **`load_skill_resource`** — loads reference guides (output format, workflow, field validation).
-4. The agent follows the steps from the loaded skill and calls the corresponding tools.
+1. **`list_skills`** (L1 — auto-injected) — runs automatically on every LLM request via `process_llm_request()`. Returns an XML listing of all skill names and descriptions (~50 tokens per skill). The agent does **not** need to call this explicitly.
+2. **`load_skill`** (L2 — on demand) — the agent calls this to load a skill's `SKILL.md`, which contains the full workflow: tools to use, step-by-step instructions, and rules (~500 tokens).
+3. **`load_skill_resource`** (L3 — on demand) — loads reference files from a skill's `references/` directory (output format guides, field validation, workflow guides). Token cost varies by file.
+4. The agent follows the steps from the loaded skill and calls the corresponding domain tools.
 
 ### Skill Tiers — L1 / L2 / L3
 
@@ -75,24 +75,23 @@ skills/
 
 ## Callbacks
 
-Two code-level callbacks enforce agent behaviour deterministically — independent of prompt instructions:
+One code-level callback enforces agent behaviour deterministically — independent of prompt instructions:
 
 | Callback | Type | Purpose |
 |----------|------|---------|
-| `_require_skill_first` | `before_tool_callback` | Blocks domain tools until a skill has been loaded. Forces the agent through `list_skills` → `load_skill` before calling any database tool. Uses a module-level flag that persists across A2A sessions. |
-| `_redact_internals` | `after_model_callback` | Strips leaked internal names (skill names, tool names, callback details) from any text response before it reaches the user. Deterministic regex — the LLM cannot bypass it. |
+| `_require_skill_first` | `before_tool_callback` | Blocks domain tools until a skill has been loaded. Since `list_skills` is auto-injected (L1), this ensures the agent calls `load_skill` (L2) before any database tool. Uses a module-level flag that resets per session. |
 
 ---
 
 ## What It Does
 
-| Capability | Tier | Description |
-|------------|------|-------------|
-| **Semantic search** | L1 | Search resolved cases with confirmed fixes ranked by similarity (threshold ≥ 0.85) |
-| **Open case triage** | L1 | List all unresolved cases ordered by severity |
-| **New error recording** | L2 | Record a newly triaged error with validated fields |
-| **Case resolution** | L3 | Guided multi-step flow: retrieve case → show suggested fixes → confirm fix → deposit |
-| **Embedding refresh** | — | When a fix is deposited, the case embedding is regenerated to include the resolution |
+| Capability | Skill | Description |
+|------------|-------|-------------|
+| **Semantic search** | `search-errors` | Search resolved cases with confirmed fixes ranked by similarity (threshold ≥ 0.85) |
+| **Open case triage** | `open-cases` | List all unresolved cases ordered by severity |
+| **New error recording** | `log-error` | Record a newly triaged error with validated fields |
+| **Case resolution** | `resolve-case` | Guided multi-step flow: retrieve case → show suggested fixes → confirm fix → deposit |
+| **Embedding refresh** | _(automatic)_ | When a fix is deposited, the case embedding is regenerated to include the resolution |
 
 ---
 
@@ -286,9 +285,9 @@ error-kb-agent/
 
 | File | Purpose |
 |------|---------|
-| `error_kb_agent/agent.py` | Defines `root_agent` with the toolbox toolset, creates `a2a_app` via `to_a2a()`. Uses `A2A_BASE_URL` env var + `urlparse` to set the correct public hostname. |
+| `error_kb_agent/agent.py` | Defines `root_agent` with SkillToolset + ToolboxToolset, `_require_skill_first` callback, and `a2a_app` via `to_a2a()`. Uses `A2A_BASE_URL` env var + `urlparse` to set the correct public hostname. |
 | `error_kb_agent/tools.py` | Connects to MCP Toolbox via `ToolboxToolset(server_url=TOOLBOX_URL, toolset_name="error-kb-toolbox")` |
-| `error_kb_agent/prompts.py` | Agent instruction covering all five tools, close-case flow, and scope boundaries |
+| `error_kb_agent/prompts.py` | Archived — agent instructions are now inline in `agent.py` + skill-driven via `SKILL.md` files |
 | `a2a_client/agent.py` | Local orchestrator with `RemoteA2aAgent(use_legacy=True)` pointing at the deployed agent |
 
 ---

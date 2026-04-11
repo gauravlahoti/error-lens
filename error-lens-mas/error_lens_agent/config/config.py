@@ -55,6 +55,10 @@ DEVELOPER_KNOWLEDGE_API_KEY = os.environ.get("DEVELOPER_KNOWLEDGE_API_KEY", "")
 KB_AGENT_URL = os.environ.get("KB_AGENT_URL", "http://localhost:8001")
 KB_SIMILARITY_THRESHOLD = float(os.environ.get("KB_SIMILARITY_THRESHOLD", "0.85"))
 
+# ── MCP Toolbox for Databases (direct search, bypasses A2A) ──────────────────
+
+TOOLBOX_URL = os.environ.get("TOOLBOX_URL", "")
+
 ALLOYDB_MCP_URL = (
     f"https://alloydb.{GOOGLE_CLOUD_REGION}.rep.googleapis.com/mcp"
 )
