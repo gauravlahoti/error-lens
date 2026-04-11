@@ -35,6 +35,38 @@ def _require_skill_first(tool, args, tool_context):
         }
     return None  # allow
 
+# ── Redaction callback ────────────────────────────────────────
+# Strip internal skill/tool names from text responses before they reach users.
+_INTERNAL_NAMES = [
+    "search-errors", "open-cases", "resolve-case", "log-error",
+    "list_skills", "load_skill", "load_skill_resource", "run_skill_script",
+    "search-similar-errors", "get-case-by-id", "get-open-cases",
+    "deposit-fix", "record-new-error",
+    "error_kb_toolset", "kb_skill_toolset", "SkillToolset", "ToolboxToolset",
+    "before_tool_callback", "after_model_callback",
+]
+_REDACT_RE = re.compile(
+    r"`?(?:" + "|".join(re.escape(n) for n in sorted(_INTERNAL_NAMES, key=len, reverse=True)) + r")`?",
+    re.IGNORECASE,
+)
+
+def _redact_internals(callback_context, llm_response):
+    """Remove leaked skill/tool names from text parts of the LLM response."""
+    if not llm_response or not llm_response.content or not llm_response.content.parts:
+        return None
+    changed = False
+    for part in llm_response.content.parts:
+        if part.text:
+            cleaned = _REDACT_RE.sub("", part.text)
+            cleaned = re.sub(r",\s*,", ",", cleaned)
+            cleaned = re.sub(r":\s*,", ":", cleaned)
+            cleaned = re.sub(r"\s{2,}", " ", cleaned)
+            cleaned = cleaned.strip()
+            if cleaned != part.text:
+                part.text = cleaned
+                changed = True
+    return llm_response if changed else None
+
 # ── Load skills ───────────────────────────────────────────────
 search_errors_skill = load_skill_from_dir(SKILLS_DIR / "search-errors")
 open_cases_skill = load_skill_from_dir(SKILLS_DIR / "open-cases")
