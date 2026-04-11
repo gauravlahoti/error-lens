@@ -15,17 +15,25 @@ MODEL = os.environ.get("MODEL", "gemini-2.5-flash")
 SKILLS_DIR = pathlib.Path(__file__).parent / "skills"
 
 # ── Skill gate callback ──────────────────────────────────────
-# Tools the agent may only call AFTER it has loaded a skill.
-# Module-level flag persists across A2A sessions within the same process.
+# 1. Domain tools blocked until a skill is loaded.
+# 2. Once a domain tool runs, load_skill is blocked (one skill per request).
+# Module-level flags persist across A2A sessions within the same process.
 _SKILL_TOOLS = {"list_skills", "load_skill", "load_skill_resource", "run_skill_script"}
 _skill_loaded = False
+_domain_tool_executed = False
 
 def _require_skill_first(tool, args, tool_context):
-    """Block domain-tool calls until the agent has loaded a skill."""
-    global _skill_loaded
+    """Block domain-tool calls until a skill is loaded; one skill per request."""
+    global _skill_loaded, _domain_tool_executed
+    if tool.name == "list_skills":
+        _skill_loaded = True
+        _domain_tool_executed = False          # reset for new request
+        return None
+    if tool.name == "load_skill" and _domain_tool_executed:
+        return {"error": "One skill per request. Respond with the result you have."}
     if tool.name in _SKILL_TOOLS:
         _skill_loaded = True
-        return None  # allow
+        return None
     if not _skill_loaded:
         return {
             "error": (
@@ -33,7 +41,8 @@ def _require_skill_first(tool, args, tool_context):
                 "First use `list_skills` and `load_skill` to discover the correct workflow."
             )
         }
-    return None  # allow
+    _domain_tool_executed = True               # mark: skill work done
+    return None
 
 # ── Redaction callback ────────────────────────────────────────
 # Strip internal skill/tool names from text responses before they reach users.
