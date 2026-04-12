@@ -1,17 +1,20 @@
 # ErrorLens
 
-**ErrorLens** is a multi-agent system that turns raw GCP errors into structured, confidence-scored diagnostic reports with ranked resolution playbooks. It combines parallel research across GCP documentation and community sources with a persistent knowledge bank of past incidents and confirmed fixes.
+**ErrorLens** is a self-learning team knowledge system for GCP errors. Every confirmed fix makes the next engineer faster — when you resolve a case, ErrorLens regenerates its knowledge bank embedding to include the confirmed resolution, so future similar errors match instantly instead of triggering a full research pipeline.
 
-The knowledge bank agent uses ADK's **skills system** with **L1 / L2 / L3 skill tiers** — from simple lookups to guided multi-turn conversations — letting the agent discover and follow workflows at runtime instead of hard-coding them.
+The more your team uses it, the smarter it gets. A brand-new deployment does a full parallel research run for every error. A mature deployment skips straight to a confirmed fix for anything the team has seen before.
+
+Under the hood it combines parallel research across GCP documentation and community sources, an AlloyDB vector knowledge bank, and a skill-driven A2A agent architecture built on Google ADK.
 
 ## Key Features
 
+- **Self-improving knowledge bank** — when a fix is confirmed, the case embedding is regenerated to include the resolution; future similar errors skip the full pipeline entirely
 - **Parallel research** — searches GCP documentation (Developer Knowledge MCP) and community sources (Google Search) simultaneously
-- **Knowledge bank** — AlloyDB-backed vector store with pgvector for semantic similarity search across past incidents
+- **Confidence scoring** — ranked fixes with composite confidence from source authority, relevance, and validation (`0.4 × authority + 0.3 × relevance + 0.3 × validation`)
+- **Knowledge bank** — AlloyDB-backed vector store with pgvector for semantic similarity search across past incidents (threshold ≥ 0.85)
 - **Skill-driven workflows** — L1 (lookups), L2 (validated writes), L3 (multi-turn conversations) discovered at runtime via ADK SkillToolset
 - **Code-level safety** — `before_tool_callback` enforces skill loading order, independent of LLM behaviour
 - **Case lifecycle** — record new errors, search for similar resolved cases, deposit confirmed fixes, list open cases
-- **Confidence scoring** — ranked fixes with composite confidence from source authority, relevance, and validation
 - **A2A communication** — error-lens-mas connects to error-kb-agent via the Agent-to-Agent protocol
 
 ## Architecture

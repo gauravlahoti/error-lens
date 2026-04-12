@@ -34,8 +34,8 @@ After `deposit-fix` succeeds, respond with:
 **Source:** [fix_source]
 **Confidence:** 100% (confirmed by engineer)
 
-This resolution is now in the knowledge bank — it will help your team
-the next time someone hits a similar error."
+**Knowledge bank updated** — embedding regenerated with the confirmed fix included.
+The next engineer who hits a similar error will match this case instantly, skipping the full research pipeline entirely."
 
 ## Rules
 - **You MUST call `get-case-by-id` and show the suggested fixes BEFORE asking anything about a confirmed fix. This is non-negotiable.**

@@ -196,6 +196,19 @@ statement: |
     overall_confidence,
     created_at;
 ---
+kind: tool
+name: get-kb-stats
+type: postgres-sql
+source: error-kb-alloydb
+description: >-
+  Returns a summary count of resolved and open cases in the error knowledge bank.
+  Use this to show the team how many errors have been resolved versus are still open.
+statement: |
+  SELECT
+    COUNT(*) FILTER (WHERE status = 'resolved') AS resolved_cases,
+    COUNT(*) FILTER (WHERE status = 'open')     AS open_cases
+  FROM error_knowledge_bank;
+---
 kind: toolset
 name: error-kb-toolbox
 tools:
@@ -204,3 +217,4 @@ tools:
   - get-open-cases
   - get-case-by-id
   - record-new-error
+  - get-kb-stats

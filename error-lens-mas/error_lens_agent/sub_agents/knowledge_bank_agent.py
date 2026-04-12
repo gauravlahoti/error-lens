@@ -38,6 +38,14 @@ kb_search_toolset = ToolboxToolset(
     tool_names=["search-similar-errors"],
 )
 
+# =============================================================================
+# KB stats — used by root_agent to show resolved/open counts on greeting
+# =============================================================================
+kb_stats_toolset = ToolboxToolset(
+    server_url=TOOLBOX_URL,
+    tool_names=["get-kb-stats"],
+)
+
 kb_search_agent = LlmAgent(
     name="kb_search_agent",
     model=MODEL_BALANCED,
