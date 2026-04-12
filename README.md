@@ -4,6 +4,16 @@
 
 The knowledge bank agent uses ADK's **skills system** with **L1 / L2 / L3 skill tiers** — from simple lookups to guided multi-turn conversations — letting the agent discover and follow workflows at runtime instead of hard-coding them.
 
+## Key Features
+
+- **Parallel research** — searches GCP documentation (Developer Knowledge MCP) and community sources (Google Search) simultaneously
+- **Knowledge bank** — AlloyDB-backed vector store with pgvector for semantic similarity search across past incidents
+- **Skill-driven workflows** — L1 (lookups), L2 (validated writes), L3 (multi-turn conversations) discovered at runtime via ADK SkillToolset
+- **Code-level safety** — `before_tool_callback` enforces skill loading order, independent of LLM behaviour
+- **Case lifecycle** — record new errors, search for similar resolved cases, deposit confirmed fixes, list open cases
+- **Confidence scoring** — ranked fixes with composite confidence from source authority, relevance, and validation
+- **A2A communication** — error-lens-mas connects to error-kb-agent via the Agent-to-Agent protocol
+
 ## Architecture
 
 ErrorLens is composed of three independently deployable services:
@@ -23,7 +33,7 @@ error-lens-mas (ADK Multi-Agent System)
    │  Internal orchestration:
    │  ┌─ quick_scan (SequentialAgent) ─── signal extraction → KB search
    │  ├─ sage_pipeline (SequentialAgent)
-   │  │     └─ deep_search_agent (ParallelAgent) ─── GCP docs + community search
+   │  │     ├─ deep_search_agent (ParallelAgent) ─── GCP docs + community search
    │  │     └─ research_aggregator → kb_record → response_presenter
    │  └─ kb_resolve_remote (RemoteA2aAgent) ─── close/list cases via direct A2A
    │
@@ -38,16 +48,6 @@ error-kb-agent (ADK + A2A Agent + Skills)
    ▼
 error-kb-toolbox (AlloyDB + pgvector)
 ```
-
-## Key Features
-
-- **Parallel research** — searches GCP documentation (Developer Knowledge MCP) and community sources (Google Search) simultaneously
-- **Knowledge bank** — AlloyDB-backed vector store with pgvector for semantic similarity search across past incidents
-- **Skill-driven workflows** — L1 (lookups), L2 (validated writes), L3 (multi-turn conversations) discovered at runtime via ADK SkillToolset
-- **Code-level safety** — `before_tool_callback` enforces skill loading; `after_model_callback` redacts internal names
-- **Case lifecycle** — record new errors, search for similar resolved cases, deposit confirmed fixes, list open cases
-- **Confidence scoring** — ranked fixes with composite confidence from source authority, relevance, and validation
-- **A2A communication** — error-lens-mas connects to error-kb-agent via the Agent-to-Agent protocol
 
 ## Quick Start
 
@@ -67,5 +67,6 @@ See each service's README for setup and deployment instructions:
 | [MCP Toolbox for Databases](https://github.com/googleapis/genai-toolbox) | Database tool layer |
 | [ADK Skills](https://google.github.io/adk-docs/skills/) | L1/L2/L3 runtime workflow discovery for the KB agent |
 | [AlloyDB + pgvector](https://cloud.google.com/alloydb/docs/ai/work-with-embeddings) | Vector similarity search |
+| [Pydantic](https://docs.pydantic.dev/) | Structured schemas for inter-agent data flow |
 | [Developer Knowledge MCP](https://docs.cloud.google.com/mcp/supported-products) | GCP documentation search |
 | [Cloud Run](https://cloud.google.com/run) | Serverless deployment for all services |

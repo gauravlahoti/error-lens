@@ -6,6 +6,37 @@ It searches official GCP documentation through Developer Knowledge MCP, gathers 
 
 ---
 
+## Example Interaction
+
+**Developer submits:**
+
+```text
+Getting this on Cloud Run — please help
+RESOURCE_EXHAUSTED: Quota exceeded for quota metric
+'run.googleapis.com/requests' and limit 'REQUESTS_PER_MINUTE_PER_REGION'
+```
+
+**Pipeline flow:**
+
+1. **root_agent** classifies as a new error → routes to `quick_scan`
+2. **signal_extractor_agent** extracts structured `error_triage_result` with service, severity, search queries
+3. **kb_search_agent** delegates to `kb_search_remote` → searches the knowledge bank
+4. **kb_search_agent** formats the result with follow-up options (apply fix / run full investigation / resolve a case)
+5. Developer picks **"Run a full investigation"** → `root_agent` routes to `sage_pipeline`
+6. **deep_search_agent** runs GCP docs + community search in parallel
+7. **research_aggregator_agent** synthesises findings into ranked `synthesis_result`
+8. **kb_record_agent** delegates to `kb_record_remote` → records the case → returns `kb_record_result` with case ID
+9. **response_presenter_agent** formats the final diagnostic report including the case ID for tracking
+
+**Response includes:**
+- Root cause explanation
+- Ranked resolution playbook with confidence scores and source links
+- Step-by-step remediation guide
+- Escalation path
+- Case tracking section with the knowledge bank case ID
+
+---
+
 ## Architecture
 
 ```text
@@ -40,66 +71,6 @@ The `root_agent` handles greetings directly and classifies error-related message
 | **General / greeting** | `root_agent` (self) | Welcomes the developer, explains capabilities, asks for error details |
 | **New error** | `quick_scan` → `sage_pipeline` | Extracts structured error context, then searches the knowledge bank. If a confident match (similarity ≥ 0.85) returns, presents it with follow-up options. If no match or the developer wants deeper investigation, routes to the full pipeline. |
 | **Resolve a case** | `kb_resolve_remote` | Developer has a case ID and a confirmed fix — transfers directly to the KB agent which handles the multi-turn resolution via its L3 resolve-case skill |
-
----
-
-## Agent Inventory
-
-| Agent | Type | Role |
-|-------|------|------|
-| `root_agent` | `LlmAgent` | Handles greetings, routes to `quick_scan`, `sage_pipeline`, or `kb_resolve_remote` |
-| `quick_scan` | `SequentialAgent` | Extracts error context → searches knowledge bank (signal extractor + KB search) |
-| `signal_extractor_agent` | `LlmAgent` | Parses raw error into `error_triage_result` structured output |
-| `kb_search_agent` | `LlmAgent` | Formats KB search results and presents follow-up options |
-| `kb_search_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for searching (triggers L1 search-errors skill) |
-| `sage_pipeline` | `SequentialAgent` | Full research pipeline: deep search → aggregate → record → present |
-| `gcp_knowledge_agent` | `SequentialAgent` | Queries Developer Knowledge MCP then formats into `gcp_knowledge_research_result` |
-| `community_search_agent` | `SequentialAgent` | Runs web search then formats into `community_research_result` |
-| `deep_search_agent` | `ParallelAgent` | Runs GCP docs and community search concurrently |
-| `research_aggregator_agent` | `LlmAgent` | Aggregates research, ranks fixes, produces `synthesis_result` |
-| `kb_record_agent` | `LlmAgent` | Extracts fields from state, delegates to A2A, returns `kb_record_result` with case ID |
-| `kb_record_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for recording (triggers L2 log-error skill) |
-| `response_presenter_agent` | `LlmAgent` | Formats the final developer-facing diagnostic report with case tracking |
-| `kb_resolve_remote` | `RemoteA2aAgent` | Direct A2A transfer to Error KB Agent for case resolution and open case listing (triggers L1 open-cases or L3 resolve-case skills) |
-
----
-
-## ADK Patterns Used
-
-| Pattern | Where | Why |
-|---------|-------|-----|
-| `SequentialAgent` | `sage_pipeline`, `community_search_agent`, `gcp_knowledge_agent` | Preserves required execution order |
-| `ParallelAgent` | `deep_search_agent` | Reduces latency by researching multiple sources concurrently |
-| `RemoteA2aAgent` | `kb_search_remote`, `kb_record_remote`, `kb_resolve_remote` | Connects to the Error KB Agent on Cloud Run via A2A protocol |
-| `LlmAgent` wrapper | `kb_search_agent`, `kb_record_agent` | Wraps remote agents to add formatting, structured output, and transfer control |
-| Direct `RemoteA2aAgent` | `kb_resolve_remote` | No wrapper needed — root agent transfers directly; KB agent's L3 skill handles the multi-turn conversation |
-| `include_contents="none"` | `kb_search_agent`, `response_presenter_agent`, `research_aggregator_agent` | Forces the LLM to reformat sub-agent output rather than echoing it |
-| `output_schema` | Signal extractor, formatters, aggregator, KB recorder | Enforces Pydantic models for structured inter-agent data flow |
-| `output_key` | All schema-producing agents | Writes structured output to session state for downstream agents |
-| `disallow_transfer_to_*` | All pipeline agents + KB search and record agents | Prevents early bailout — agents must complete their full formatted response before returning |
-
----
-
-## Structured Output Models
-
-| Model | Produced By | Consumed By |
-|-------|-------------|-------------|
-| `error_triage_result` | `signal_extractor_agent` | All downstream pipeline agents |
-| `gcp_knowledge_research_result` | `gcp_knowledge_formatter_agent` | `research_aggregator_agent` |
-| `community_research_result` | `web_search_formatter` | `research_aggregator_agent` |
-| `synthesis_result` | `research_aggregator_agent` | `kb_record_agent`, `response_presenter_agent` |
-| `kb_record_result` | `kb_record_agent` | `response_presenter_agent` (case ID in the report) |
-All models are defined in `error_lens_agent/models.py`.
-
----
-
-## Integrations
-
-| Integration | Endpoint | Used By |
-|-------------|----------|---------|
-| Developer Knowledge MCP | `https://developerknowledge.googleapis.com/mcp` | `gcp_knowledge_search_agent` |
-| Google built-in search | ADK built-in `google_search` tool | `web_search_agent` |
-| Error KB Agent (A2A) | Configured via `KB_AGENT_URL` env var | `kb_search_remote`, `kb_record_remote`, `kb_resolve_remote` |
 
 ---
 
@@ -205,34 +176,105 @@ uv run adk run .
 
 ---
 
-## Example Interaction
+## Deploying to Cloud Run
 
-**Developer submits:**
+The MAS is deployed to Cloud Run using the ADK CLI.
 
-```text
-Getting this on Cloud Run — please help
-RESOURCE_EXHAUSTED: Quota exceeded for quota metric
-'run.googleapis.com/requests' and limit 'REQUESTS_PER_MINUTE_PER_REGION'
+### 1. Enable required APIs
+
+```bash
+gcloud services enable run.googleapis.com \
+    --project <YOUR_PROJECT_ID>
 ```
 
-**Pipeline flow:**
+### 2. Authenticate
 
-1. **root_agent** classifies as a new error → routes to `quick_scan`
-2. **signal_extractor_agent** extracts structured `error_triage_result` with service, severity, search queries
-3. **kb_search_agent** delegates to `kb_search_remote` → searches the knowledge bank
-4. **kb_search_agent** formats the result with follow-up options (apply fix / run full investigation / resolve a case)
-5. Developer picks **"Run a full investigation"** → `root_agent` routes to `sage_pipeline`
-6. **deep_search_agent** runs GCP docs + community search in parallel
-7. **research_aggregator_agent** synthesises findings into ranked `synthesis_result`
-8. **kb_record_agent** delegates to `kb_record_remote` → records the case → returns `kb_record_result` with case ID
-9. **response_presenter_agent** formats the final diagnostic report including the case ID for tracking
+```bash
+gcloud auth login
+gcloud auth application-default login
+gcloud auth application-default set-quota-project <YOUR_PROJECT_ID>
+```
 
-**Response includes:**
-- Root cause explanation
-- Ranked resolution playbook with confidence scores and source links
-- Step-by-step remediation guide
-- Escalation path
-- Case tracking section with the knowledge bank case ID
+### 3. Deploy with ADK
+
+```bash
+cd error-lens-mas
+uv run adk deploy cloud_run \
+    --project <YOUR_PROJECT_ID> \
+    --region us-central1 \
+    --service-name error-lens-mas \
+    --app-name error_lens_agent \
+    --set-env-vars "KB_AGENT_URL=<YOUR_KB_AGENT_URL>,GOOGLE_GENAI_USE_VERTEXAI=1,GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID>,GOOGLE_CLOUD_REGION=us-central1,DEVELOPER_KNOWLEDGE_API_KEY=<YOUR_KEY>"
+```
+
+> **Note:** All model variables (`GEMINI_MODEL_MAX_REASONING`, `GEMINI_MODEL_BALANCED`, `GEMINI_MODEL_FAST`, `GOOGLE_SEARCH_MODEL`) must also be passed via `--set-env-vars` or set in `.env` before deploying.
+
+### 4. Verify
+
+```bash
+curl https://<YOUR_MAS_URL>/.well-known/agent.json
+```
+
+---
+
+## Agent Inventory
+
+| Agent | Type | Role |
+|-------|------|------|
+| `root_agent` | `LlmAgent` | Handles greetings, routes to `quick_scan`, `sage_pipeline`, or `kb_resolve_remote` |
+| `quick_scan` | `SequentialAgent` | Extracts error context → searches knowledge bank (signal extractor + KB search) |
+| `signal_extractor_agent` | `LlmAgent` | Parses raw error into `error_triage_result` structured output |
+| `kb_search_agent` | `LlmAgent` | Formats KB search results and presents follow-up options |
+| `kb_search_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for searching (triggers L1 search-errors skill) |
+| `sage_pipeline` | `SequentialAgent` | Full research pipeline: deep search → aggregate → record → present |
+| `gcp_knowledge_agent` | `SequentialAgent` | Queries Developer Knowledge MCP then formats into `gcp_knowledge_research_result` |
+| `community_search_agent` | `SequentialAgent` | Runs web search then formats into `community_research_result` |
+| `deep_search_agent` | `ParallelAgent` | Runs GCP docs and community search concurrently |
+| `research_aggregator_agent` | `LlmAgent` | Aggregates research, ranks fixes, produces `synthesis_result` |
+| `kb_record_agent` | `LlmAgent` | Extracts fields from state, delegates to A2A, returns `kb_record_result` with case ID |
+| `kb_record_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for recording (triggers L2 log-error skill) |
+| `response_presenter_agent` | `LlmAgent` | Formats the final developer-facing diagnostic report with case tracking |
+| `kb_resolve_remote` | `RemoteA2aAgent` | Direct A2A transfer to Error KB Agent for case resolution and open case listing (triggers L1 open-cases or L3 resolve-case skills) |
+
+---
+
+## ADK Patterns Used
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| `SequentialAgent` | `sage_pipeline`, `community_search_agent`, `gcp_knowledge_agent` | Preserves required execution order |
+| `ParallelAgent` | `deep_search_agent` | Reduces latency by researching multiple sources concurrently |
+| `RemoteA2aAgent` | `kb_search_remote`, `kb_record_remote`, `kb_resolve_remote` | Connects to the Error KB Agent on Cloud Run via A2A protocol |
+| `LlmAgent` wrapper | `kb_search_agent`, `kb_record_agent` | Wraps remote agents to add formatting, structured output, and transfer control |
+| Direct `RemoteA2aAgent` | `kb_resolve_remote` | No wrapper needed — root agent transfers directly; KB agent's L3 skill handles the multi-turn conversation |
+| `include_contents="none"` | `kb_search_agent`, `response_presenter_agent`, `research_aggregator_agent` | Forces the LLM to reformat sub-agent output rather than echoing it |
+| `output_schema` | Signal extractor, formatters, aggregator, KB recorder | Enforces Pydantic models for structured inter-agent data flow |
+| `output_key` | All schema-producing agents | Writes structured output to session state for downstream agents |
+| `disallow_transfer_to_*` | All pipeline agents + KB search and record agents | Prevents early bailout — agents must complete their full formatted response before returning |
+
+---
+
+## Structured Output Models
+
+| Model | Produced By | Consumed By |
+|-------|-------------|-------------|
+| `error_triage_result` | `signal_extractor_agent` | All downstream pipeline agents |
+| `gcp_knowledge_research_result` | `gcp_knowledge_formatter_agent` | `research_aggregator_agent` |
+| `community_research_result` | `web_search_formatter` | `research_aggregator_agent` |
+| `synthesis_result` | `research_aggregator_agent` | `kb_record_agent`, `response_presenter_agent` |
+| `kb_record_result` | `kb_record_agent` | `response_presenter_agent` (case ID in the report) |
+
+All models are defined in `error_lens_agent/models.py`.
+
+---
+
+## Integrations
+
+| Integration | Endpoint | Used By |
+|-------------|----------|---------|
+| Developer Knowledge MCP | `https://developerknowledge.googleapis.com/mcp` | `gcp_knowledge_agent` |
+| Google built-in search | ADK built-in `google_search` tool | `community_search_agent` |
+| Error KB Agent (A2A) | Configured via `KB_AGENT_URL` env var | `kb_search_remote`, `kb_record_remote`, `kb_resolve_remote` |
 
 ---
 
@@ -240,12 +282,14 @@ RESOURCE_EXHAUSTED: Quota exceeded for quota metric
 
 All runtime constants live in `error_lens_agent/config/config.py` and are overridden via `.env`.
 
+> There are no hardcoded defaults for model variables — they must be set in `.env`. The example values in the Getting Started section are recommended starting points.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MODEL_PROVIDER` | `gemini` | Provider switch: `gemini` or `anthropic` |
-| `GEMINI_MODEL_MAX_REASONING` | — | Gemini model for deep reasoning |
-| `GEMINI_MODEL_BALANCED` | — | Gemini model for balanced tasks (root, presenter, all KB agents) |
-| `GEMINI_MODEL_FAST` | — | Gemini model for fast/lightweight tasks (signal extractor, research formatters) |
+| `GEMINI_MODEL_MAX_REASONING` | _(set in `.env`)_ | Gemini model for deep reasoning |
+| `GEMINI_MODEL_BALANCED` | _(set in `.env`)_ | Gemini model for balanced tasks (root, presenter, all KB agents) |
+| `GEMINI_MODEL_FAST` | _(set in `.env`)_ | Gemini model for fast/lightweight tasks (signal extractor, research formatters) |
 | `GOOGLE_SEARCH_MODEL` | `gemini-2.5-flash` | Dedicated model for `google_search` tool |
 | `GOOGLE_CLOUD_REGION` | `us-central1` | GCP region |
 | `DEVELOPER_KNOWLEDGE_API_KEY` | `""` | Auth for Developer Knowledge MCP |

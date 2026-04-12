@@ -6,6 +6,18 @@ The agent uses ADK's **skills system** to discover workflows at runtime via **pr
 
 ---
 
+## What It Does
+
+| Capability | Skill | Description |
+|------------|-------|-------------|
+| **Semantic search** | `search-errors` | Search resolved cases with confirmed fixes ranked by similarity (threshold ≥ 0.85) |
+| **Open case triage** | `open-cases` | List all unresolved cases ordered by severity |
+| **New error recording** | `log-error` | Record a newly triaged error with validated fields |
+| **Case resolution** | `resolve-case` | Guided multi-step flow: retrieve case → show suggested fixes → confirm fix → deposit |
+| **Embedding refresh** | _(automatic)_ | When a fix is deposited, the case embedding is regenerated to include the resolution |
+
+---
+
 ## Architecture
 
 ```text
@@ -17,6 +29,148 @@ The agent uses ADK's **skills system** to discover workflows at runtime via **pr
 │  + sub_agent    │                           │  + uvicorn       │                      │  + AlloyDB       │
 └─────────────────┘                           └──────────────────┘                      └──────────────────┘
 ```
+
+---
+
+## Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| Python 3.14+ | Required by `pyproject.toml` |
+| [uv](https://docs.astral.sh/uv/) | Fast Python package manager |
+| Google Cloud project | With Vertex AI API enabled |
+| Running **Error KB Toolbox** | See [error-kb-toolbox README](../error-kb-toolbox/README.md) |
+| `gcloud` CLI | Installed and authenticated |
+
+---
+
+## Getting Started
+
+### 1. Clone and navigate
+
+```bash
+git clone https://github.com/gauravlahoti/error-lens.git
+cd error-lens/error-kb-agent
+```
+
+### 2. Install dependencies
+
+```bash
+uv sync
+```
+
+This installs `google-adk[a2a]`, `python-dotenv`, `toolbox-adk`, and `toolbox-core` from the lockfile.
+
+### 3. Authenticate with Google Cloud
+
+```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project <YOUR_PROJECT_ID>
+```
+
+### 4. Set up environment variables
+
+```bash
+cp error_kb_agent/.env.template error_kb_agent/.env
+```
+
+Open `error_kb_agent/.env` and fill in:
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `GOOGLE_GENAI_USE_VERTEXAI` | `1` | `1` for Vertex AI, `0` for AI Studio |
+| `GOOGLE_CLOUD_PROJECT` | `my-gcp-project` | Your GCP project ID |
+| `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
+| `TOOLBOX_URL` | `https://error-kb-toolbox-xxx.run.app` | URL of your Error KB Toolbox deployment |
+| `MODEL` | `gemini-2.5-flash` | Gemini model name |
+
+### 5. Run locally with ADK Web
+
+```bash
+uv run adk web
+```
+
+Open http://localhost:8000 and select `error_kb_agent` from the agent dropdown.
+
+> **Important:** Use `uv run adk web` (not bare `adk web`) to ensure the virtual environment with the `[a2a]` extra is active.
+
+---
+
+## Deploying to Cloud Run (A2A)
+
+The agent is exposed as an A2A-compatible server using `to_a2a()` and served via `uvicorn`.
+
+### 1. Enable required APIs
+
+```bash
+gcloud services enable run.googleapis.com \
+    --project <YOUR_PROJECT_ID>
+```
+
+### 2. Build and deploy
+
+```bash
+gcloud run deploy error-kb-agent \
+    --source . \
+    --region us-central1 \
+    --project <YOUR_PROJECT_ID> \
+    --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=1,GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID>,GOOGLE_CLOUD_LOCATION=us-central1,TOOLBOX_URL=<YOUR_TOOLBOX_URL>,MODEL=gemini-2.5-flash,A2A_BASE_URL=https://error-kb-agent-<PROJECT_NUMBER>.us-central1.run.app" \
+    --port=8080 \
+    --allow-unauthenticated
+```
+
+> **Important:** Set `A2A_BASE_URL` to the Cloud Run service URL so the agent card advertises the correct public endpoint instead of `localhost:8080`.
+
+### 3. Verify the agent card
+
+```bash
+curl https://<YOUR_AGENT_URL>/.well-known/agent.json
+```
+
+You should see the agent card JSON with the agent's skills and capabilities listed.
+
+### Dockerfile
+
+The included `Dockerfile` uses `python:3.14-slim` with `uv` for dependency management:
+
+```dockerfile
+FROM python:3.14-slim
+WORKDIR /app
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+COPY error_kb_agent/ error_kb_agent/
+ENV PORT=8080
+CMD ["uv", "run", "uvicorn", "error_kb_agent.agent:a2a_app", "--host", "0.0.0.0", "--port", "8080"]
+```
+
+---
+
+## A2A Client (Local Orchestrator)
+
+The `a2a_client/` directory contains a standalone local ADK agent that connects to the remote Error KB Agent via the A2A protocol. Use this to test the deployed agent interactively.
+
+### 1. Set up environment
+
+```bash
+cp a2a_client/.env.template a2a_client/.env
+```
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `GOOGLE_GENAI_USE_VERTEXAI` | `1` | `1` for Vertex AI |
+| `GOOGLE_CLOUD_PROJECT` | `my-gcp-project` | Your GCP project ID |
+| `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
+| `ERROR_KB_AGENT_URL` | `https://error-kb-agent-xxx.run.app` | Cloud Run URL of the Error KB Agent |
+| `MODEL` | `gemini-2.5-flash` | Model for the local orchestrator |
+
+### 2. Run
+
+```bash
+uv run adk web a2a_client
+```
+
+Open http://localhost:8000 and select the `root_agent`. It delegates error-related queries to the remote `error_kb_agent` via `RemoteA2aAgent`.
 
 ---
 
@@ -83,146 +237,6 @@ One code-level callback enforces agent behaviour deterministically — independe
 
 ---
 
-## What It Does
-
-| Capability | Skill | Description |
-|------------|-------|-------------|
-| **Semantic search** | `search-errors` | Search resolved cases with confirmed fixes ranked by similarity (threshold ≥ 0.85) |
-| **Open case triage** | `open-cases` | List all unresolved cases ordered by severity |
-| **New error recording** | `log-error` | Record a newly triaged error with validated fields |
-| **Case resolution** | `resolve-case` | Guided multi-step flow: retrieve case → show suggested fixes → confirm fix → deposit |
-| **Embedding refresh** | _(automatic)_ | When a fix is deposited, the case embedding is regenerated to include the resolution |
-
----
-
-## Prerequisites
-
-| Requirement | Notes |
-|-------------|-------|
-| Python 3.14+ | Required by `pyproject.toml` |
-| [uv](https://docs.astral.sh/uv/) | Fast Python package manager |
-| Google Cloud project | With Vertex AI API enabled |
-| Running **Error KB Toolbox** | See [error-kb-toolbox README](../error-kb-toolbox/README.md) |
-| `gcloud` CLI | Installed and authenticated |
-
----
-
-## Getting Started
-
-### 1. Clone and navigate
-
-```bash
-git clone https://github.com/gauravlahoti/error-lens.git
-cd error-lens/error-kb-agent
-```
-
-### 2. Install dependencies
-
-```bash
-uv sync
-```
-
-This installs `google-adk[a2a]`, `python-dotenv`, `toolbox-adk`, and `toolbox-core` from the lockfile.
-
-### 3. Set up environment variables
-
-```bash
-cp error_kb_agent/.env.template error_kb_agent/.env
-```
-
-Open `error_kb_agent/.env` and fill in:
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `GOOGLE_GENAI_USE_VERTEXAI` | `1` | `1` for Vertex AI, `0` for AI Studio |
-| `GOOGLE_CLOUD_PROJECT` | `my-gcp-project` | Your GCP project ID |
-| `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
-| `TOOLBOX_URL` | `https://error-kb-toolbox-xxx.run.app` | URL of your Error KB Toolbox deployment |
-| `MODEL` | `gemini-2.5-flash` | Gemini model name |
-
-### 4. Run locally with ADK Web
-
-```bash
-uv run adk web
-```
-
-Open http://localhost:8000 and select `error_kb_agent` from the agent dropdown.
-
-> **Important:** Use `uv run adk web` (not bare `adk web`) to ensure the virtual environment with the `[a2a]` extra is active.
-
----
-
-## Deploying to Cloud Run (A2A)
-
-The agent is exposed as an A2A-compatible server using `to_a2a()` and served via `uvicorn`.
-
-### 1. Build and deploy
-
-```bash
-gcloud run deploy error-kb-agent \
-    --source . \
-    --region us-central1 \
-    --project <YOUR_PROJECT_ID> \
-    --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=1,GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID>,GOOGLE_CLOUD_LOCATION=us-central1,TOOLBOX_URL=<YOUR_TOOLBOX_URL>,MODEL=gemini-2.5-flash,A2A_BASE_URL=https://error-kb-agent-<PROJECT_NUMBER>.us-central1.run.app" \
-    --port=8080 \
-    --allow-unauthenticated
-```
-
-> **Important:** Set `A2A_BASE_URL` to the Cloud Run service URL so the agent card advertises the correct public endpoint instead of `localhost:8080`.
-
-### 2. Verify the agent card
-
-```bash
-curl https://<YOUR_AGENT_URL>/.well-known/agent.json
-```
-
-You should see the agent card JSON with the five tools listed as capabilities.
-
-### Dockerfile
-
-The included `Dockerfile` uses `python:3.14-slim` with `uv` for dependency management:
-
-```dockerfile
-FROM python:3.14-slim
-WORKDIR /app
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
-COPY error_kb_agent/ error_kb_agent/
-ENV PORT=8080
-CMD ["uv", "run", "uvicorn", "error_kb_agent.agent:a2a_app", "--host", "0.0.0.0", "--port", "8080"]
-```
-
----
-
-## A2A Client (Local Orchestrator)
-
-The `a2a_client/` directory contains a standalone local ADK agent that connects to the remote Error KB Agent via the A2A protocol. Use this to test the deployed agent interactively.
-
-### 1. Set up environment
-
-```bash
-cp a2a_client/.env.template a2a_client/.env
-```
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `GOOGLE_GENAI_USE_VERTEXAI` | `1` | `1` for Vertex AI |
-| `GOOGLE_CLOUD_PROJECT` | `my-gcp-project` | Your GCP project ID |
-| `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
-| `ERROR_KB_AGENT_URL` | `https://error-kb-agent-xxx.run.app` | Cloud Run URL of the Error KB Agent |
-| `MODEL` | `gemini-2.5-flash` | Model for the local orchestrator |
-
-### 2. Run
-
-```bash
-uv run adk web a2a_client
-```
-
-Open http://localhost:8000 and select the `root_agent`. It delegates error-related queries to the remote `error_kb_agent` via `RemoteA2aAgent`.
-
----
-
 ## Close-Case Flow (L3 — resolve-case skill)
 
 When a user asks to close or resolve a case, the agent loads the `resolve-case` skill and follows a guided multi-step conversation:
@@ -247,7 +261,7 @@ error-kb-agent/
 │   ├── __init__.py
 │   ├── agent.py              # Agent definition, callbacks, skills, A2A via to_a2a()
 │   ├── tools.py              # ToolboxToolset connection
-│   ├── prompts.py            # (unused — instructions are inline + skill-driven)
+│   ├── prompts.py            # (archived — original prompt; superseded by inline instructions + SKILL.md files)
 │   ├── skills/               # ADK skills — L1/L2/L3 workflow definitions
 │   │   ├── search-errors/    # L1 — semantic similarity search
 │   │   │   ├── SKILL.md

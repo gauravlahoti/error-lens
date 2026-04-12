@@ -32,6 +32,27 @@ All tools belong to a single toolset named **`error-kb-toolbox`**.
 
 ---
 
+## Database Schema
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | `UUID` | Primary key, auto-generated via `gen_random_uuid()` |
+| `error_message` | `TEXT` | Raw error message |
+| `error_summary` | `TEXT` | One-sentence normalised summary |
+| `gcp_service` | `TEXT` | Primary GCP service (e.g. `Cloud Run`, `BigQuery`) |
+| `severity` | `TEXT` | `low`, `medium`, `high`, or `critical` |
+| `status` | `TEXT` | `open` or `resolved` |
+| `root_cause` | `TEXT` | Explanation of the root cause |
+| `suggested_fixes` | `JSONB` | Agent-suggested fixes with confidence and source |
+| `confirmed_fix` | `TEXT` | Developer-confirmed fix description |
+| `fix_source` | `TEXT` | `gcp_docs`, `community`, or `internal` |
+| `overall_confidence` | `FLOAT` | Confidence score (0.0–1.0) |
+| `embedding` | `VECTOR(768)` | `text-embedding-005` vector for similarity search |
+| `created_at` | `TIMESTAMPTZ` | Case creation timestamp |
+| `resolved_at` | `TIMESTAMPTZ` | Case resolution timestamp |
+
+---
+
 ## Prerequisites
 
 | Requirement | Notes |
@@ -54,7 +75,21 @@ git clone https://github.com/gauravlahoti/error-lens.git
 cd error-lens/error-kb-toolbox
 ```
 
-### 2. Download the toolbox binary
+### 2. Authenticate with Google Cloud
+
+```bash
+gcloud auth login
+gcloud auth application-default login
+gcloud auth application-default set-quota-project <YOUR_PROJECT_ID>
+```
+
+Enable the Vertex AI API (required for the `google_ml_integration` extension to generate embeddings in-database):
+
+```bash
+gcloud services enable aiplatform.googleapis.com
+```
+
+### 3. Download the toolbox binary
 
 Pick the binary for your OS/arch from the [MCP Toolbox releases](https://github.com/googleapis/genai-toolbox/releases) page.
 
@@ -65,7 +100,7 @@ curl -L -o toolbox \
 chmod +x toolbox
 ```
 
-### 3. Set up environment variables
+### 4. Set up environment variables
 
 ```bash
 cp .env.template .env
@@ -85,9 +120,9 @@ Open `.env` and fill in your values:
 | `DB_PASSWORD` | — | Database password |
 | `SERVICE_NAME` | `error-kb-toolbox` | Cloud Run service name (for deployment) |
 | `SERVICE_ACCOUNT` | `sa@project.iam.gserviceaccount.com` | Cloud Run service account (for deployment) |
-| `IMAGE` | `us-docker.pkg.dev/.../toolbox` | Toolbox container image path (for deployment) |
+| `IMAGE` | `us-docker.pkg.dev/google.com/cloudsdktool/toolbox:latest` | Toolbox container image — use a [release tag](https://github.com/googleapis/genai-toolbox/releases) |
 
-### 4. Prepare the database
+### 5. Prepare the database
 
 Connect to your AlloyDB instance (e.g. via `psql` or Cloud Shell) and run:
 
@@ -102,7 +137,7 @@ CREATE TABLE IF NOT EXISTS error_knowledge_bank (
     error_message       TEXT        NOT NULL,
     error_summary       TEXT        NOT NULL,
     gcp_service         TEXT        NOT NULL,
-    severity            TEXT        NOT NULL DEFAULT 'open',
+    severity            TEXT        NOT NULL DEFAULT 'medium',
     status              TEXT        NOT NULL DEFAULT 'open',
     root_cause          TEXT,
     suggested_fixes     JSONB,
@@ -122,7 +157,7 @@ SELECT extname FROM pg_extension WHERE extname IN ('vector', 'google_ml_integrat
 SELECT tablename FROM pg_tables WHERE tablename = 'error_knowledge_bank';
 ```
 
-### 5. Review `tools.yaml`
+### 6. Review `tools.yaml`
 
 The file uses a flat **multi-document YAML** format with `---` separators — one document per source, tool, or toolset.
 
@@ -130,7 +165,7 @@ The file uses a flat **multi-document YAML** format with `---` separators — on
 
 See [tools.yaml](tools.yaml) for the full configuration.
 
-### 6. Run locally
+### 7. Run locally
 
 > **Toolbox v0.31.0+ breaking change:** The REST API is disabled by default. Pass `--enable-api` for the UI and API endpoints to work.
 
@@ -145,13 +180,20 @@ Open http://127.0.0.1:5000/ui/toolsets, type `error-kb-toolbox` in the search bo
 
 ## Deploying to Cloud Run
 
-### 1. Source your environment
+### 1. Enable required APIs
+
+```bash
+gcloud services enable run.googleapis.com secretmanager.googleapis.com \
+    --project=$PROJECT_ID
+```
+
+### 2. Source your environment
 
 ```bash
 source .env
 ```
 
-### 2. Store `tools.yaml` in Secret Manager
+### 3. Store `tools.yaml` in Secret Manager
 
 First time:
 
@@ -169,7 +211,7 @@ gcloud secrets versions add error-kb-tools \
     --data-file=tools.yaml
 ```
 
-### 3. Deploy
+### 4. Deploy
 
 ```bash
 gcloud run deploy $SERVICE_NAME \
@@ -186,34 +228,13 @@ gcloud run deploy $SERVICE_NAME \
 
 The CLI prints a URL like `https://error-kb-toolbox-xxxxxx.us-central1.run.app`.
 
-### 4. Verify
+### 5. Verify
 
 ```bash
 curl https://<YOUR_TOOLBOX_URL>/api/toolset/error-kb-toolbox
 ```
 
 You should get back a JSON list of the five tools.
-
----
-
-## Database Schema
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | `UUID` | Primary key, auto-generated via `gen_random_uuid()` |
-| `error_message` | `TEXT` | Raw error message |
-| `error_summary` | `TEXT` | One-sentence normalised summary |
-| `gcp_service` | `TEXT` | Primary GCP service (e.g. `Cloud Run`, `BigQuery`) |
-| `severity` | `TEXT` | `low`, `medium`, `high`, or `critical` |
-| `status` | `TEXT` | `open` or `resolved` |
-| `root_cause` | `TEXT` | Explanation of the root cause |
-| `suggested_fixes` | `JSONB` | Agent-suggested fixes with confidence and source |
-| `confirmed_fix` | `TEXT` | Developer-confirmed fix description |
-| `fix_source` | `TEXT` | `gcp_docs`, `community`, or `internal` |
-| `overall_confidence` | `FLOAT` | Confidence score (0.0–1.0) |
-| `embedding` | `VECTOR(768)` | `text-embedding-005` vector for similarity search |
-| `created_at` | `TIMESTAMPTZ` | Case creation timestamp |
-| `resolved_at` | `TIMESTAMPTZ` | Case resolution timestamp |
 
 ---
 
