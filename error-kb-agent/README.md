@@ -46,29 +46,57 @@ The agent uses ADK's **skills system** to discover workflows at runtime via **pr
 
 ## Getting Started
 
-### 1. Clone and navigate
+### 1. Install uv
+
+`uv` is the package manager used across this project. Skip this step if you already have it.
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+```bash
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Verify:
+
+```bash
+uv --version
+```
+
+### 2. Clone and navigate
 
 ```bash
 git clone https://github.com/gauravlahoti/error-lens.git
 cd error-lens/error-kb-agent
 ```
 
-### 2. Install dependencies
+### 3. Create a virtual environment and install dependencies
 
 ```bash
+uv venv
 uv sync
 ```
 
-This installs `google-adk[a2a]`, `python-dotenv`, `toolbox-adk`, and `toolbox-core` from the lockfile.
+`uv sync` reads `pyproject.toml` and `uv.lock` and installs all pinned dependencies — including `google-adk[a2a]`, `python-dotenv`, `toolbox-adk`, and `toolbox-core` — into the local `.venv`.
 
-### 3. Authenticate with Google Cloud
+> **Building from scratch?** If you were starting a new project instead of cloning, you would run:
+> ```bash
+> uv init my-kb-agent
+> cd my-kb-agent
+> uv add "google-adk[a2a]" python-dotenv toolbox-adk toolbox-core
+> ```
+
+### 4. Authenticate with Google Cloud
 
 ```bash
 gcloud auth application-default login
 gcloud auth application-default set-quota-project <YOUR_PROJECT_ID>
 ```
 
-### 4. Set up environment variables
+### 5. Set up environment variables
 
 ```bash
 cp error_kb_agent/.env.template error_kb_agent/.env
@@ -84,7 +112,7 @@ Open `error_kb_agent/.env` and fill in:
 | `TOOLBOX_URL` | `https://error-kb-toolbox-xxx.run.app` | URL of your Error KB Toolbox deployment |
 | `MODEL` | `gemini-2.5-flash` | Gemini model name |
 
-### 5. Run locally with ADK Web
+### 6. Run locally with ADK Web
 
 ```bash
 uv run adk web

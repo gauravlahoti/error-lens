@@ -95,22 +95,51 @@ gcloud services enable discoveryengine.googleapis.com
 
 ## Getting Started
 
-### 1. Clone and navigate
+### 1. Install uv
+
+`uv` is the package manager used across this project. Skip this step if you already have it.
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+```bash
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Verify:
+
+```bash
+uv --version
+```
+
+### 2. Clone and navigate
 
 ```bash
 git clone https://github.com/gauravlahoti/error-lens.git
 cd error-lens/error-lens-mas
 ```
 
-### 2. Install dependencies
+### 3. Create a virtual environment and install dependencies
 
 ```bash
+uv venv
 uv sync
 ```
 
-This installs `google-adk[a2a,extensions]` and `python-dotenv` from the lockfile.
+`uv sync` reads `pyproject.toml` and `uv.lock` and installs all pinned dependencies — including `google-adk[a2a,extensions]` and `python-dotenv` — into the local `.venv`.
 
-### 3. Set up environment variables
+> **Building from scratch?** If you were starting a new project instead of cloning, you would run:
+> ```bash
+> uv init my-agent
+> cd my-agent
+> uv add "google-adk[a2a,extensions]" python-dotenv
+> ```
+> `uv add` resolves, pins, and installs the package in one step, updating both `pyproject.toml` and `uv.lock`.
+
+### 4. Set up environment variables
 
 ```bash
 cp error_lens_agent/.env.template error_lens_agent/.env
@@ -143,7 +172,7 @@ Open `error_lens_agent/.env` and fill in:
 
 > `google_search` always uses a Gemini model regardless of provider, since it is a Google-only tool.
 
-### 4. Authenticate with Google Cloud (optional)
+### 5. Authenticate with Google Cloud (optional)
 
 If you use local ADC-backed Google Cloud calls:
 

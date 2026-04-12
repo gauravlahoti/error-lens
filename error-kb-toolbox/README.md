@@ -68,14 +68,34 @@ All tools belong to a single toolset named **`error-kb-toolbox`**.
 
 ## Getting Started
 
-### 1. Clone and navigate
+### 1. Install uv
+
+`uv` is the package manager used across this project. Skip this step if you already have it.
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+```bash
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Verify:
+
+```bash
+uv --version
+```
+
+### 2. Clone and navigate
 
 ```bash
 git clone https://github.com/gauravlahoti/error-lens.git
 cd error-lens/error-kb-toolbox
 ```
 
-### 2. Authenticate with Google Cloud
+### 3. Authenticate with Google Cloud
 
 ```bash
 gcloud auth login
@@ -89,7 +109,7 @@ Enable the Vertex AI API (required for the `google_ml_integration` extension to 
 gcloud services enable aiplatform.googleapis.com
 ```
 
-### 3. Download the toolbox binary
+### 4. Download the toolbox binary
 
 Pick the binary for your OS/arch from the [MCP Toolbox releases](https://github.com/googleapis/genai-toolbox/releases) page.
 
@@ -100,7 +120,7 @@ curl -L -o toolbox \
 chmod +x toolbox
 ```
 
-### 4. Set up environment variables
+### 5. Set up environment variables
 
 ```bash
 cp .env.template .env
@@ -122,7 +142,7 @@ Open `.env` and fill in your values:
 | `SERVICE_ACCOUNT` | `sa@project.iam.gserviceaccount.com` | Cloud Run service account (for deployment) |
 | `IMAGE` | `us-docker.pkg.dev/google.com/cloudsdktool/toolbox:latest` | Toolbox container image — use a [release tag](https://github.com/googleapis/genai-toolbox/releases) |
 
-### 5. Prepare the database
+### 6. Prepare the database
 
 Connect to your AlloyDB instance (e.g. via `psql` or Cloud Shell) and run:
 
@@ -157,7 +177,7 @@ SELECT extname FROM pg_extension WHERE extname IN ('vector', 'google_ml_integrat
 SELECT tablename FROM pg_tables WHERE tablename = 'error_knowledge_bank';
 ```
 
-### 6. Review `tools.yaml`
+### 7. Review `tools.yaml`
 
 The file uses a flat **multi-document YAML** format with `---` separators — one document per source, tool, or toolset.
 
@@ -165,7 +185,7 @@ The file uses a flat **multi-document YAML** format with `---` separators — on
 
 See [tools.yaml](tools.yaml) for the full configuration.
 
-### 7. Run locally
+### 8. Run locally
 
 > **Toolbox v0.31.0+ breaking change:** The REST API is disabled by default. Pass `--enable-api` for the UI and API endpoints to work.
 
