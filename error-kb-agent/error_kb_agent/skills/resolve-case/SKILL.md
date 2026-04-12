@@ -17,7 +17,7 @@ a case, or wants to record what worked.
 ## Steps
 1. **FIRST** — call `load_skill_resource` with skill_name=`resolve-case` and path=`references/workflow_guide.md`. Read the full content before doing anything else. Do NOT skip this step.
 2. If the engineer has not provided a case ID, ask for it once.
-3. **MANDATORY** — As soon as you have a case ID, call `get-case-by-id` IMMEDIATELY. You MUST do this BEFORE asking ANY questions about fixes. The engineer needs to SEE the suggested fixes from the database before they can tell you which one worked. Do NOT ask "what fix did you use?" or "please provide the confirmed fix" without first calling this tool and showing the results.
+3. **MANDATORY (code-enforced)** — As soon as you have a case ID, call `get-case-by-id` IMMEDIATELY. `deposit-fix` is **blocked by the system** until `get-case-by-id` has been called in this session — you cannot skip this step even if you try. The engineer needs to SEE the suggested fixes from the database before they can tell you which one worked. Do NOT ask "what fix did you use?" or "please provide the confirmed fix" without first calling this tool and showing the results.
 4. Present the suggested fixes as a numbered list and ask which one resolved the issue, or whether it was a different solution entirely.
 5. Ask for the fix source — `gcp_docs`, `community`, or `internal`.
 6. Call `deposit-fix` with the case ID, confirmed fix text, and fix source.

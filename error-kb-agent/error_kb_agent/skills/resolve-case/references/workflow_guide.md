@@ -38,9 +38,18 @@ After `deposit-fix` succeeds, respond with:
 The next engineer who hits a similar error will match this case instantly, skipping the full research pipeline entirely."
 
 ## Rules
-- **You MUST call `get-case-by-id` and show the suggested fixes BEFORE asking anything about a confirmed fix. This is non-negotiable.**
+- **You MUST call `get-case-by-id` and show the suggested fixes BEFORE asking anything about a confirmed fix. This is non-negotiable and code-enforced — `deposit-fix` will be blocked if you skip it.**
 - Always present the suggested fixes as a numbered list so the engineer can pick one
 - Accept free-text if the engineer describes a different solution
 - Fix source must be one of: gcp_docs, community, internal
 - Never auto-select a fix — the engineer must confirm
 - Keep the case ID in backticks in the confirmation
+
+## Anti-pattern — NEVER do this
+The following response is wrong. Do not produce it:
+
+> "To resolve this case, I need two pieces of information from you:
+> 1. What was the **confirmed fix** that resolved the error?
+> 2. What was the **source** of this fix?"
+
+This asks for fix details before showing the engineer what fixes were already recorded. Always call `get-case-by-id` first and present the numbered fix list.
