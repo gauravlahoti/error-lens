@@ -13,8 +13,8 @@ type: postgres-sql
 source: error-kb-alloydb
 description: >-
   Search the error knowledge bank for past errors that are semantically
-  similar to the given error text. Returns the top matching cases with
-  their fixes and confidence scores.
+  similar to the given error text. Returns the top matching cases across
+  all projects with their fixes and confidence scores.
 parameters:
   - name: error_text
     type: string
@@ -24,7 +24,8 @@ parameters:
     description: Maximum number of results to return. Default 5.
 statement: |
   SELECT
-    id::text AS id,
+    case_ref,
+    project_id,
     error_message,
     error_summary,
     gcp_service,
@@ -51,12 +52,12 @@ type: postgres-sql
 source: error-kb-alloydb
 description: >-
   Record a confirmed fix for an existing case in the error knowledge bank.
-  Call this after an engineer confirms that a suggested fix resolved
-  their issue. Updates the case status to resolved.
+  Call this after an engineer confirms that a suggested fix resolved their issue.
+  Pass the case reference exactly as shown in the diagnostic report (e.g. EL-20260413-00001).
 parameters:
-  - name: case_id
+  - name: case_ref
     type: string
-    description: The UUID of the case to update (e.g. 550e8400-e29b-41d4-a716-446655440000).
+    description: The case reference of the case to update (e.g. EL-20260413-00001).
   - name: confirmed_fix
     type: string
     description: Description of the fix that actually resolved the issue.
@@ -73,19 +74,25 @@ statement: |
     resolved_at = NOW(),
     embedding = embedding('text-embedding-005',
                 error_summary || ' ' || $2)::vector
-  WHERE id = $1::uuid
-  RETURNING id::text AS id, gcp_service, status, confirmed_fix, overall_confidence, resolved_at;
+  WHERE case_ref = $1
+  RETURNING case_ref, project_id, gcp_service, status, confirmed_fix, overall_confidence, resolved_at;
 ---
 kind: tool
 name: get-open-cases
 type: postgres-sql
 source: error-kb-alloydb
 description: >-
-  Retrieve all unresolved cases from the error knowledge bank.
-  Returns open cases ordered by severity and creation date.
+  Retrieve unresolved cases from the error knowledge bank.
+  Pass a GCP project ID to filter to your team's cases, or 'all' to see every open case across all projects.
+  Returns cases ordered by severity and creation date.
+parameters:
+  - name: project_id
+    type: string
+    description: GCP project ID to filter by (e.g. my-project-123), or 'all' for all projects.
 statement: |
   SELECT
-    id::text AS id,
+    case_ref,
+    project_id,
     error_message,
     error_summary,
     gcp_service,
@@ -95,6 +102,7 @@ statement: |
     created_at
   FROM error_knowledge_bank
   WHERE status = 'open'
+    AND ($1 = 'all' OR project_id = $1)
   ORDER BY
     CASE severity
       WHEN 'critical' THEN 1
@@ -109,16 +117,16 @@ name: get-case-by-id
 type: postgres-sql
 source: error-kb-alloydb
 description: >-
-  Retrieve a single case from the error knowledge bank by its UUID.
-  Use this to look up full case details including suggested fixes
-  before closing or updating a case.
+  Retrieve a single case from the error knowledge bank by its case reference.
+  Use this to look up full case details including suggested fixes before closing a case.
 parameters:
-  - name: case_id
+  - name: case_ref
     type: string
-    description: The UUID of the case to retrieve.
+    description: The case reference to retrieve (e.g. EL-20260413-00001).
 statement: |
   SELECT
-    id::text AS id,
+    case_ref,
+    project_id,
     error_message,
     error_summary,
     gcp_service,
@@ -132,7 +140,7 @@ statement: |
     created_at,
     resolved_at
   FROM error_knowledge_bank
-  WHERE id = $1::uuid;
+  WHERE case_ref = $1;
 ---
 kind: tool
 name: record-new-error
@@ -166,6 +174,9 @@ parameters:
   - name: overall_confidence
     type: string
     description: Overall confidence score from synthesis_result as a decimal string (e.g. "0.85").
+  - name: project_id
+    type: string
+    description: GCP project ID of the team reporting this error (e.g. my-project-123).
 statement: |
   INSERT INTO error_knowledge_bank (
     error_message,
@@ -176,6 +187,7 @@ statement: |
     root_cause,
     suggested_fixes,
     overall_confidence,
+    project_id,
     embedding
   ) VALUES (
     $1,
@@ -186,10 +198,12 @@ statement: |
     $5,
     $6::jsonb,
     $7::float,
+    $8,
     embedding('text-embedding-005', $2 || ' ' || $3)::vector
   )
   RETURNING
-    id::text AS id,
+    case_ref,
+    project_id,
     gcp_service,
     severity,
     status,
@@ -202,12 +216,17 @@ type: postgres-sql
 source: error-kb-alloydb
 description: >-
   Returns a summary count of resolved and open cases in the error knowledge bank.
-  Use this to show the team how many errors have been resolved versus are still open.
+  Pass a GCP project ID to filter to your team's cases, or 'all' for totals across all projects.
+parameters:
+  - name: project_id
+    type: string
+    description: GCP project ID to filter by, or 'all' for all projects.
 statement: |
   SELECT
     COUNT(*) FILTER (WHERE status = 'resolved') AS resolved_cases,
     COUNT(*) FILTER (WHERE status = 'open')     AS open_cases
-  FROM error_knowledge_bank;
+  FROM error_knowledge_bank
+  WHERE ($1 = 'all' OR project_id = $1);
 ---
 kind: toolset
 name: error-kb-toolbox

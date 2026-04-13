@@ -63,6 +63,13 @@ ALLOYDB_MCP_URL = (
     f"https://alloydb.{GOOGLE_CLOUD_REGION}.rep.googleapis.com/mcp"
 )
 
+# ── Raw model name strings for token cost tracking ───────────────────────────
+# These are plain strings (not model objects) used by token_tracker.py.
+MODEL_MAX_REASONING_NAME = os.environ.get(f"{MODEL_PROVIDER.upper()}_MODEL_MAX_REASONING", "gemini-2.5-flash")
+MODEL_BALANCED_NAME      = os.environ.get(f"{MODEL_PROVIDER.upper()}_MODEL_BALANCED",      "gemini-2.5-flash")
+MODEL_FAST_NAME          = os.environ.get(f"{MODEL_PROVIDER.upper()}_MODEL_FAST",           "gemini-2.5-flash-lite")
+GOOGLE_SEARCH_MODEL_NAME = GOOGLE_SEARCH_MODEL
+
 # ── LLM response budgeting ───────────────────────────────────────────────────
 # Caps verbose raw search responses before formatter agents structure them.
 

@@ -46,7 +46,15 @@ coverage.xml
 # Node
 node_modules/
 
+# Local notes
+pending_features.txt
+
 # Logs
 *.log
 error-kb-toolbox/toolbox
 CLAUDE.md
+
+# Database SQL files
+*migrate*.sql
+*schema*.sql
+*seed*.sql

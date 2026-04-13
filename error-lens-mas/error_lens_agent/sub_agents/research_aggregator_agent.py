@@ -3,9 +3,10 @@
 from google.adk.agents import LlmAgent
 from google.genai import types
 
-from error_lens_agent.config.config import MODEL_MAX_REASONING
+from error_lens_agent.config.config import MODEL_MAX_REASONING, MODEL_MAX_REASONING_NAME
 from error_lens_agent.models import synthesis_result
 from error_lens_agent.prompts import synthesis_agent_instruction
+from error_lens_agent.token_tracker import make_token_tracker
 
 
 # =============================================================================
@@ -19,4 +20,5 @@ research_aggregator_agent = LlmAgent(
     include_contents="none",
     output_schema=synthesis_result,
     output_key="synthesis_result",
+    after_model_callback=make_token_tracker(MODEL_MAX_REASONING_NAME),
 )

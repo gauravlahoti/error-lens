@@ -16,7 +16,7 @@ a case, or wants to record what worked.
 
 ## Steps
 1. **FIRST** — call `load_skill_resource` with skill_name=`resolve-case` and path=`references/workflow_guide.md`. Read the full content before doing anything else. Do NOT skip this step.
-2. If the engineer has not provided a case ID, ask for it once.
+2. If the engineer has not provided a case reference, ask for it once. The case reference looks like `EL-20260413-00001` — it was shown at the bottom of their diagnostic report. Legacy UUID case IDs are also accepted.
 3. **MANDATORY (code-enforced)** — As soon as you have a case ID, call `get-case-by-id` IMMEDIATELY. `deposit-fix` is **blocked by the system** until `get-case-by-id` has been called in this session — you cannot skip this step even if you try. The engineer needs to SEE the suggested fixes from the database before they can tell you which one worked. Do NOT ask "what fix did you use?" or "please provide the confirmed fix" without first calling this tool and showing the results.
 4. Present the suggested fixes as a numbered list and ask which one resolved the issue, or whether it was a different solution entirely.
 5. Ask for the fix source — `gcp_docs`, `community`, or `internal`.
@@ -29,4 +29,5 @@ a case, or wants to record what worked.
 ## Important
 - Never skip asking which fix resolved the issue — the engineer must confirm.
 - Never invent a case ID or fix source — always get them from the engineer.
-- The case ID is a UUID from AlloyDB — render it exactly as received.
+- The case_ref follows the pattern EL-YYYYMMDD-NNNNN — render it exactly as received.
+- If the engineer disengages, says ignore/skip/cancel, or has no confirmed fix — follow the **abandon path** in workflow_guide.md. Do NOT call `deposit-fix`.

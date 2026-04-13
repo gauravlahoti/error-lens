@@ -7,9 +7,12 @@ from google.genai import types
 from error_lens_agent.config.config import (
     MODEL_BALANCED,
     MODEL_FAST,
+    MODEL_FAST_NAME,
     GOOGLE_SEARCH_MODEL,
+    GOOGLE_SEARCH_MODEL_NAME,
     MAX_RESEARCH_OUTPUT_TOKENS,
 )
+from error_lens_agent.token_tracker import make_token_tracker
 from error_lens_agent.models import community_research_result
 from error_lens_agent.prompts import (
     web_search_agent_instruction,
@@ -28,6 +31,7 @@ web_search_agent = LlmAgent(
     tools=[google_search],
     output_key="web_search_agent_raw",
     include_contents="none",
+    after_model_callback=make_token_tracker(GOOGLE_SEARCH_MODEL_NAME),
 )
 
 # ── Step B: structures raw search output into community_research_result ───────
@@ -39,6 +43,7 @@ web_search_formatter = LlmAgent(
     output_schema=community_research_result,
     output_key="community_research_agent_result",
     include_contents="none",
+    after_model_callback=make_token_tracker(MODEL_FAST_NAME),
 )
 
 # ── community_search_agent: search → format sequentially ─────────────────────

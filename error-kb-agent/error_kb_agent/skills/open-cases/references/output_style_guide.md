@@ -7,8 +7,8 @@ For each case, output this exact format:
 ---
 
 **#[n] — [severity]**
-**Case ID:** `[uuid]`
-**Service:** [gcp_service] · **Age:** [human-readable duration]
+**Case Ref:** `[case_ref]`
+**Service:** [gcp_service] · **Project:** [project_id] · **Age:** [human-readable duration]
 
 **Error Summary:**
 [error_summary — full text, do not truncate]
@@ -22,7 +22,8 @@ Repeat for each case, incrementing the number.
 - Within the same severity, sort by age descending (oldest first)
 
 ## Formatting rules
-- Case ID as full UUID in backticks — engineers need it to close cases later
+- Case Ref in backticks (e.g. `EL-20260413-00003`) — engineers need it to close cases later
+- Show project_id so teams can identify which project owns the case
 - Do not truncate the error summary
 - Age as human-readable duration: "2 hours", "3 days", "1 week"
 - Bold the severity label for critical cases

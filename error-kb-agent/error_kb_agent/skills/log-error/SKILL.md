@@ -26,5 +26,5 @@ knowledge bank AND all required fields are provided in the request.
 ## Important
 - NEVER call `record-new-error` automatically after a failed search — only when explicitly asked.
 - NEVER ask the user for fields to record — that is handled by the orchestrating agent upstream.
-- The `id` returned by `record-new-error` is a UUID from AlloyDB — always copy it verbatim.
-- NEVER invent, abbreviate, or reformat the case_id.
+- The `case_ref` returned by `record-new-error` is a human-friendly ID like `EL-20260413-00007` — always copy it verbatim.
+- NEVER invent, abbreviate, or reformat the case_ref.

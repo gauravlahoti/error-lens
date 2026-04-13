@@ -2,9 +2,9 @@
 
 ## Conversation flow
 
-### Step 1: Collect case ID
-If the engineer hasn't provided a case ID, ask exactly:
-"Which case ID would you like to close? (It's the UUID from when the error was recorded.)"
+### Step 1: Collect case reference
+If the engineer hasn't provided a case reference, ask exactly:
+"Which case would you like to close? Share the Case Ref from your diagnostic report — it looks like `EL-20260413-00001`."
 
 One question. Don't ask for anything else yet.
 
@@ -29,7 +29,7 @@ After the engineer confirms which fix worked, ask:
 ### Step 4: Confirm resolution
 After `deposit-fix` succeeds, respond with:
 
-"Case `[case_id]` is now resolved.
+"Case `[case_ref]` is now resolved.
 **Confirmed fix:** [fix text]
 **Source:** [fix_source]
 **Confidence:** 100% (confirmed by engineer)
@@ -37,13 +37,31 @@ After `deposit-fix` succeeds, respond with:
 **Knowledge bank updated** — embedding regenerated with the confirmed fix included.
 The next engineer who hits a similar error will match this case instantly, skipping the full research pipeline entirely."
 
+## Abandon path — when the engineer disengages
+
+If at any point the engineer says they don't have a fix yet, wants to skip,
+says "ignore", "cancel", "never mind", or otherwise disengages — respond with:
+
+"No problem. The case stays open in the knowledge bank. Come back with your Case Ref once a fix is confirmed and I'll record it then."
+
+Then stop. **Do NOT call `deposit-fix`.** A case with no confirmed fix must remain open.
+Fabricating a fix to close the case corrupts the knowledge bank — every deposit-fix
+call is permanent and regenerates the embedding.
+
+## Fix source — if engineer is unsure
+
+If the engineer cannot identify the source (e.g. "I don't know", "not sure"),
+ask once more with the three options clearly listed. If they still cannot answer,
+accept their best guess — do not force a default without their input.
+
 ## Rules
 - **You MUST call `get-case-by-id` and show the suggested fixes BEFORE asking anything about a confirmed fix. This is non-negotiable and code-enforced — `deposit-fix` will be blocked if you skip it.**
 - Always present the suggested fixes as a numbered list so the engineer can pick one
 - Accept free-text if the engineer describes a different solution
 - Fix source must be one of: gcp_docs, community, internal
 - Never auto-select a fix — the engineer must confirm
-- Keep the case ID in backticks in the confirmation
+- Never call `deposit-fix` without a genuine confirmed fix — not when the engineer says ignore, skip, or I don't know
+- Keep the case_ref in backticks in the confirmation (e.g. `EL-20260413-00001`)
 
 ## Anti-pattern — NEVER do this
 The following response is wrong. Do not produce it:

@@ -75,12 +75,12 @@ class synthesis_result(BaseModel):
 
 class kb_record_result(BaseModel):
     """Structured output from the knowledge bank recorder agent."""
-    case_id: str = Field(description="UUID of the newly recorded case in the knowledge bank")
+    case_ref: str = Field(description="Human-friendly case reference (e.g. EL-20260413-00001) of the newly recorded case")
 
 
 class kb_resolve_result(BaseModel):
     """Structured output from the knowledge bank resolve agent."""
-    case_id:       str = Field(description="UUID of the resolved case")
+    case_ref:      str = Field(description="Human-friendly case reference of the resolved case (e.g. EL-20260413-00001)")
     gcp_service:   str = Field(default="", description="GCP service of the resolved case")
     status:        str = Field(default="resolved", description="New status of the case")
     confirmed_fix: str = Field(default="", description="The fix that resolved the issue")

@@ -1,6 +1,7 @@
 from google.adk.agents import LlmAgent, SequentialAgent
 
-from error_lens_agent.config.config import MODEL_FAST, MODEL_BALANCED, MODEL_MAX_REASONING, MAX_RESEARCH_OUTPUT_TOKENS
+from error_lens_agent.config.config import MODEL_FAST, MODEL_BALANCED, MODEL_BALANCED_NAME, MODEL_MAX_REASONING, MAX_RESEARCH_OUTPUT_TOKENS
+from error_lens_agent.token_tracker import make_token_tracker
 
 from error_lens_agent.sub_agents.signal_extractor_agent import signal_extractor_agent
 from error_lens_agent.sub_agents.deep_search_agent import deep_search_agent
@@ -20,6 +21,7 @@ response_presenter_agent = LlmAgent(
     description="Formats synthesis_result into a clear, empathetic developer response.",
     instruction=response_presenter_instruction,
     include_contents="none",
+    after_model_callback=make_token_tracker(MODEL_BALANCED_NAME),
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
 )
@@ -60,5 +62,6 @@ root_agent = LlmAgent(
     instruction=root_agent_instruction,
     tools=[kb_stats_toolset],
     sub_agents=[quick_scan, sage_pipeline, kb_resolve_remote],
+    after_model_callback=make_token_tracker(MODEL_BALANCED_NAME),
 )
 

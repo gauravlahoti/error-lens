@@ -8,7 +8,7 @@ For each match, output this exact format:
 
 **#1 — [similarity]% match**
 **Service:** [gcp_service] · **Severity:** [severity]
-**Case ID:** `[case_id]`
+**Case Ref:** `[case_ref]`
 
 **Confirmed Fix:**
 [confirmed_fix — full text, do not truncate]
@@ -19,9 +19,9 @@ Repeat for each result, incrementing the number.
 
 ## Formatting rules
 - Convert raw score to percentage: 0.98 → 98%
-- Show case ID in every card — engineers need it to close cases later
-- Use the full UUID as the case ID (e.g. `8a837b8e-d76d-4596-adb1-edd2194a046d`)
-- Do not abbreviate or shorten the case ID
+- Show case_ref in every card — engineers need it to close cases later
+- Use the case_ref exactly as returned (e.g. `EL-20260413-00003`) — never the raw UUID
+- Do not abbreviate or reformat the case_ref
 
 ## Confidence header
 Above the cards always include one line:
