@@ -24,6 +24,7 @@ kb_record_agent = LlmAgent(
     model=MODEL_BALANCED,
     description="Records the triaged error into the knowledge bank.",
     instruction=kb_record_instruction,
+    include_contents="none",
     output_schema=kb_record_result,
     output_key="kb_record_result",
     sub_agents=[kb_record_remote],

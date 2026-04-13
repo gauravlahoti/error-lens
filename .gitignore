@@ -54,7 +54,5 @@ pending_features.txt
 error-kb-toolbox/toolbox
 CLAUDE.md
 
-# Database SQL files
-*migrate*.sql
-*schema*.sql
-*seed*.sql
+# Local artifacts (SQL files, test scripts, generated reports)
+local_artifacts/

@@ -199,7 +199,7 @@ statement: |
     $6::jsonb,
     $7::float,
     $8,
-    embedding('text-embedding-005', $2 || ' ' || $3)::vector
+    embedding('text-embedding-005', $1 || ' ' || $2 || ' ' || $3)::vector
   )
   RETURNING
     case_ref,

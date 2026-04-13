@@ -7,6 +7,7 @@ from error_lens_agent.sub_agents.signal_extractor_agent import signal_extractor_
 from error_lens_agent.sub_agents.deep_search_agent import deep_search_agent
 from error_lens_agent.sub_agents.research_aggregator_agent import research_aggregator_agent
 from error_lens_agent.sub_agents.knowledge_bank_agent import kb_record_agent, kb_search_agent, kb_resolve_remote, kb_stats_toolset
+from error_lens_agent.tools.report_pdf_tool import generate_pdf_report
 from error_lens_agent.prompts import (
     root_agent_instruction,
     response_presenter_instruction,
@@ -21,6 +22,7 @@ response_presenter_agent = LlmAgent(
     description="Formats synthesis_result into a clear, empathetic developer response.",
     instruction=response_presenter_instruction,
     include_contents="none",
+    tools=[generate_pdf_report],
     after_model_callback=make_token_tracker(MODEL_BALANCED_NAME),
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
@@ -60,7 +62,7 @@ root_agent = LlmAgent(
     model=MODEL_BALANCED,
     description="ErrorLens — routes developer requests to the right agent.",
     instruction=root_agent_instruction,
-    tools=[kb_stats_toolset],
+    tools=[kb_stats_toolset, generate_pdf_report],
     sub_agents=[quick_scan, sage_pipeline, kb_resolve_remote],
     after_model_callback=make_token_tracker(MODEL_BALANCED_NAME),
 )

@@ -37,6 +37,7 @@ gcp_knowledge_formatter_agent = LlmAgent(
     model=MODEL_FAST,
     description="Structures raw GCP documentation findings into gcp_knowledge_research_result.",
     instruction=gcp_knowledge_formatter_instruction,
+    include_contents="none",
     output_schema=gcp_knowledge_research_result,
     output_key="gcp_knowledge_agent_result",
     after_model_callback=make_token_tracker(MODEL_FAST_NAME),

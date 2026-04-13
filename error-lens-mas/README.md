@@ -1,8 +1,8 @@
 # ErrorLens — Multi-Agent GCP Error Triage
 
-ErrorLens is a multi-agent system (MAS) built with [Google ADK](https://google.github.io/adk-docs/) that turns raw GCP errors into structured triage, parallel research, confidence-scored synthesis, and a concise developer-facing diagnostic report.
+ErrorLens is a multi-agent system (MAS) built with [Google ADK](https://google.github.io/adk-docs/) that turns raw GCP errors into structured triage, parallel research, confidence-scored synthesis, a concise developer-facing diagnostic report, and an exportable PDF for team sharing.
 
-It searches official GCP documentation through Developer Knowledge MCP, gathers community research from web search, records every case in the team's **Error Knowledge Bank** (an AlloyDB-backed vector store of past incidents and confirmed fixes) via an A2A remote agent, and delivers a ranked resolution playbook with case tracking.
+It searches official GCP documentation through Developer Knowledge MCP, gathers community research from web search, records every case in the team's **Error Knowledge Bank** (an AlloyDB-backed vector store of past incidents and confirmed fixes) via an A2A remote agent, and delivers a ranked resolution playbook with case tracking. When the investigation is complete, the developer can request a consulting-grade PDF report saved as an ADK Artifact and stored in Google Cloud Storage.
 
 ---
 
@@ -20,13 +20,15 @@ RESOURCE_EXHAUSTED: Quota exceeded for quota metric
 
 1. **root_agent** classifies as a new error → routes to `quick_scan`
 2. **signal_extractor_agent** extracts structured `error_triage_result` with service, severity, search queries
-3. **kb_search_agent** delegates to `kb_search_remote` → searches the knowledge bank
+3. **kb_search_agent** searches the knowledge bank directly via ToolboxToolset
 4. **kb_search_agent** formats the result with follow-up options (apply fix / run full investigation / resolve a case)
 5. Developer picks **"Run a full investigation"** → `root_agent` routes to `sage_pipeline`
 6. **deep_search_agent** runs GCP docs + community search in parallel
 7. **research_aggregator_agent** synthesises findings into ranked `synthesis_result`
 8. **kb_record_agent** delegates to `kb_record_remote` → records the case → returns `kb_record_result` with case ID
-9. **response_presenter_agent** formats the final diagnostic report including the case ID for tracking
+9. **response_presenter_agent** formats the final diagnostic report including case ID and a PDF offer
+
+**Developer says "generate PDF"** → `generate_pdf_report` saves a consulting-grade PDF as an ADK Artifact to GCS; a download link appears in the chat.
 
 **Response includes:**
 - Root cause explanation
@@ -34,6 +36,7 @@ RESOURCE_EXHAUSTED: Quota exceeded for quota metric
 - Step-by-step remediation guide
 - Escalation path
 - Case tracking section with the knowledge bank case ID
+- Optional: downloadable PDF report stored in GCS
 
 ---
 
@@ -44,8 +47,7 @@ root_agent (LlmAgent — router)
 │
 ├── quick_scan (SequentialAgent — fast triage + KB lookup)
 │   ├── signal_extractor_agent (LlmAgent)       step 1 — extracts structured error context
-│   └── kb_search_agent (LlmAgent)              step 2 — searches KB, formats results
-│       └── kb_search_remote (RemoteA2aAgent)      → Error KB Agent on Cloud Run
+│   └── kb_search_agent (LlmAgent)              step 2 — searches KB directly, formats results
 │
 ├── sage_pipeline (SequentialAgent — full research pipeline)
 │   ├── deep_search_agent (ParallelAgent)       step 1 — concurrent research
@@ -54,7 +56,8 @@ root_agent (LlmAgent — router)
 │   ├── research_aggregator_agent (LlmAgent)    step 2 — synthesises ranked fixes
 │   ├── kb_record_agent (LlmAgent)              step 3 — records case, outputs case ID
 │   │   └── kb_record_remote (RemoteA2aAgent)      → Error KB Agent on Cloud Run
-│   └── response_presenter_agent (LlmAgent)     step 4 — formats final diagnostic report
+│   └── response_presenter_agent (LlmAgent)     step 4 — formats diagnostic report
+│       └── generate_pdf_report (tool)              → ADK Artifact saved to GCS
 │
 └── kb_resolve_remote (RemoteA2aAgent)    resolves/lists cases via direct A2A transfer
        → Error KB Agent on Cloud Run (uses L1/L3 skills internally)
@@ -68,9 +71,35 @@ The `root_agent` handles greetings directly and classifies error-related message
 
 | Intent | Route | Description |
 |--------|-------|-------------|
-| **General / greeting** | `root_agent` (self) | Welcomes the developer, explains capabilities, asks for error details |
+| **General / greeting** | `root_agent` (self) | Welcomes the developer, explains capabilities, shows KB stats |
 | **New error** | `quick_scan` → `sage_pipeline` | Extracts structured error context, then searches the knowledge bank. If a confident match (similarity ≥ 0.85) returns, presents it with follow-up options. If no match or the developer wants deeper investigation, routes to the full pipeline. |
 | **Resolve a case** | `kb_resolve_remote` | Developer has a case ID and a confirmed fix — transfers directly to the KB agent which handles the multi-turn resolution via its L3 resolve-case skill |
+| **PDF request** | `generate_pdf_report` (tool) | Any phrasing ("pdf", "download", "export") triggers the tool on either `root_agent` or `response_presenter_agent` |
+
+---
+
+## ADK Artifacts — PDF Report Export
+
+When a full investigation completes, the developer can request a PDF:
+
+```
+Developer: "generate PDF"
+→ generate_pdf_report tool reads synthesis_result, error_triage_result,
+  kb_record_result from ADK session state
+→ builds a consulting-grade PDF (Google Material pastel design)
+→ saves it via tool_context.save_artifact() as an ADK Artifact
+→ ADK writes the bytes to GCS bucket (error-lens-pdf-reports)
+→ a download link appears in the ADK web UI automatically
+```
+
+**Public URL pattern:**
+```
+https://storage.googleapis.com/error-lens-pdf-reports/<ErrorLens_Diagnostic_Report_YYYYMMDD_HHMMSS.pdf>
+```
+
+The `artifact_service` is configured in `config/artifact_service.py` and re-exported from `__init__.py` so ADK discovers it:
+- **Local dev** (`ARTIFACT_GCS_BUCKET` unset): uses `InMemoryArtifactService`
+- **Cloud Run** (`ARTIFACT_GCS_BUCKET=error-lens-pdf-reports`): uses `GcsArtifactService`
 
 ---
 
@@ -129,15 +158,7 @@ uv venv
 uv sync
 ```
 
-`uv sync` reads `pyproject.toml` and `uv.lock` and installs all pinned dependencies — including `google-adk[a2a,extensions]` and `python-dotenv` — into the local `.venv`.
-
-> **Building from scratch?** If you were starting a new project instead of cloning, you would run:
-> ```bash
-> uv init my-agent
-> cd my-agent
-> uv add "google-adk[a2a,extensions]" python-dotenv
-> ```
-> `uv add` resolves, pins, and installs the package in one step, updating both `pyproject.toml` and `uv.lock`.
+`uv sync` reads `pyproject.toml` and `uv.lock` and installs all pinned dependencies — including `google-adk[a2a,extensions]`, `python-dotenv`, and `fpdf2` — into the local `.venv`.
 
 ### 4. Set up environment variables
 
@@ -155,10 +176,12 @@ Open `error_lens_agent/.env` and fill in:
 | `GOOGLE_CLOUD_REGION` | `us-central1` | GCP region |
 | `DEVELOPER_KNOWLEDGE_API_KEY` | `AIza...` | API key for Developer Knowledge MCP |
 | `KB_AGENT_URL` | `https://error-kb-agent-xxx.run.app` | URL of the deployed Error KB Agent |
+| `TOOLBOX_URL` | `https://error-kb-toolbox-xxx.run.app` | URL of the deployed Error KB Toolbox |
 | `GEMINI_MODEL_MAX_REASONING` | `gemini-2.5-flash` | Model for deep reasoning (aggregator) |
-| `GEMINI_MODEL_BALANCED` | `gemini-2.5-flash` | Model for balanced tasks (root, presenter, all KB agents) |
+| `GEMINI_MODEL_BALANCED` | `gemini-2.5-flash` | Model for balanced tasks (root, presenter, KB agents) |
 | `GEMINI_MODEL_FAST` | `gemini-2.5-flash-lite` | Model for fast tasks (signal extractor, research formatters) |
 | `GOOGLE_SEARCH_MODEL` | `gemini-2.5-flash` | Model for the `google_search` tool path |
+| `ARTIFACT_GCS_BUCKET` | `error-lens-pdf-reports` | GCS bucket for PDF report artifacts (leave unset to use in-memory for local dev) |
 
 **Optional — Anthropic provider:**
 
@@ -170,24 +193,18 @@ Open `error_lens_agent/.env` and fill in:
 | `ANTHROPIC_MODEL_BALANCED` | Claude model for balanced tasks |
 | `ANTHROPIC_MODEL_FAST` | Claude model for fast tasks |
 
-> `google_search` always uses a Gemini model regardless of provider, since it is a Google-only tool.
+> `google_search` always uses a Gemini model regardless of provider.
 
-### 5. Authenticate with Google Cloud (optional)
-
-If you use local ADC-backed Google Cloud calls:
+### 5. Authenticate with Google Cloud
 
 ```bash
 gcloud auth application-default login
 gcloud auth application-default set-quota-project <your-project-id>
 ```
 
-If using Google AI Studio (`GOOGLE_GENAI_USE_VERTEXAI=0`), the `GOOGLE_API_KEY` is the primary credential.
-
 ---
 
 ## Running Locally
-
-### ADK Web UI
 
 ```bash
 uv run adk web
@@ -197,48 +214,25 @@ Open http://localhost:8000 and select `error_lens_agent` from the dropdown.
 
 > **Important:** Use `uv run adk web` (not bare `adk web`) to ensure the virtual environment with the `[a2a]` extra is active.
 
-### CLI
-
-```bash
-uv run adk run .
-```
-
 ---
 
 ## Deploying to Cloud Run
-
-The MAS is deployed to Cloud Run using the ADK CLI.
-
-### 1. Enable required APIs
-
-```bash
-gcloud services enable run.googleapis.com \
-    --project <YOUR_PROJECT_ID>
-```
-
-### 2. Authenticate
-
-```bash
-gcloud auth login
-gcloud auth application-default login
-gcloud auth application-default set-quota-project <YOUR_PROJECT_ID>
-```
-
-### 3. Deploy with ADK
 
 ```bash
 cd error-lens-mas
 uv run adk deploy cloud_run \
     --project <YOUR_PROJECT_ID> \
     --region us-central1 \
-    --service-name error-lens-mas \
-    --app-name error_lens_agent \
-    --set-env-vars "KB_AGENT_URL=<YOUR_KB_AGENT_URL>,GOOGLE_GENAI_USE_VERTEXAI=1,GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID>,GOOGLE_CLOUD_REGION=us-central1,DEVELOPER_KNOWLEDGE_API_KEY=<YOUR_KEY>"
+    --service_name error-lens-mas \
+    --with_ui error_lens_agent \
+    -- \
+    --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=1,GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID>,GOOGLE_CLOUD_REGION=us-central1,GOOGLE_API_KEY=<YOUR_KEY>,DEVELOPER_KNOWLEDGE_API_KEY=<YOUR_KEY>,MODEL_PROVIDER=gemini,GEMINI_MODEL_MAX_REASONING=gemini-2.5-flash,GEMINI_MODEL_BALANCED=gemini-2.5-flash,GEMINI_MODEL_FAST=gemini-2.5-flash-lite,GOOGLE_SEARCH_MODEL=gemini-2.5-flash,KB_AGENT_URL=<YOUR_KB_AGENT_URL>,TOOLBOX_URL=<YOUR_TOOLBOX_URL>,KB_SIMILARITY_THRESHOLD=0.85,ARTIFACT_GCS_BUCKET=error-lens-pdf-reports" \
+    --allow-unauthenticated
 ```
 
-> **Note:** All model variables (`GEMINI_MODEL_MAX_REASONING`, `GEMINI_MODEL_BALANCED`, `GEMINI_MODEL_FAST`, `GOOGLE_SEARCH_MODEL`) must also be passed via `--set-env-vars` or set in `.env` before deploying.
+> **Note:** The package directory (`error_lens_agent`) must be the last positional argument before `--`. Passing `.` instead breaks the import path on Cloud Run.
 
-### 4. Verify
+Verify:
 
 ```bash
 curl https://<YOUR_MAS_URL>/.well-known/agent.json
@@ -248,13 +242,12 @@ curl https://<YOUR_MAS_URL>/.well-known/agent.json
 
 ## Agent Inventory
 
-| Agent | Type | Role |
-|-------|------|------|
-| `root_agent` | `LlmAgent` | Handles greetings, routes to `quick_scan`, `sage_pipeline`, or `kb_resolve_remote` |
-| `quick_scan` | `SequentialAgent` | Extracts error context → searches knowledge bank (signal extractor + KB search) |
+| Agent / Tool | Type | Role |
+|---|---|---|
+| `root_agent` | `LlmAgent` | Handles greetings, shows KB stats, routes to `quick_scan`, `sage_pipeline`, or `kb_resolve_remote` |
+| `quick_scan` | `SequentialAgent` | Extracts error context → searches knowledge bank |
 | `signal_extractor_agent` | `LlmAgent` | Parses raw error into `error_triage_result` structured output |
-| `kb_search_agent` | `LlmAgent` | Formats KB search results and presents follow-up options |
-| `kb_search_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for searching (triggers L1 search-errors skill) |
+| `kb_search_agent` | `LlmAgent` | Searches KB directly via ToolboxToolset, formats results with follow-up options |
 | `sage_pipeline` | `SequentialAgent` | Full research pipeline: deep search → aggregate → record → present |
 | `gcp_knowledge_agent` | `SequentialAgent` | Queries Developer Knowledge MCP then formats into `gcp_knowledge_research_result` |
 | `community_search_agent` | `SequentialAgent` | Runs web search then formats into `community_research_result` |
@@ -263,7 +256,8 @@ curl https://<YOUR_MAS_URL>/.well-known/agent.json
 | `kb_record_agent` | `LlmAgent` | Extracts fields from state, delegates to A2A, returns `kb_record_result` with case ID |
 | `kb_record_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for recording (triggers L2 log-error skill) |
 | `response_presenter_agent` | `LlmAgent` | Formats the final developer-facing diagnostic report with case tracking |
-| `kb_resolve_remote` | `RemoteA2aAgent` | Direct A2A transfer to Error KB Agent for case resolution and open case listing (triggers L1 open-cases or L3 resolve-case skills) |
+| `kb_resolve_remote` | `RemoteA2aAgent` | Direct A2A transfer to Error KB Agent for case resolution and open case listing |
+| `generate_pdf_report` | Tool (async function) | Builds consulting-grade PDF from session state, saves as ADK Artifact to GCS |
 
 ---
 
@@ -273,13 +267,13 @@ curl https://<YOUR_MAS_URL>/.well-known/agent.json
 |---------|-------|-----|
 | `SequentialAgent` | `sage_pipeline`, `community_search_agent`, `gcp_knowledge_agent` | Preserves required execution order |
 | `ParallelAgent` | `deep_search_agent` | Reduces latency by researching multiple sources concurrently |
-| `RemoteA2aAgent` | `kb_search_remote`, `kb_record_remote`, `kb_resolve_remote` | Connects to the Error KB Agent on Cloud Run via A2A protocol |
-| `LlmAgent` wrapper | `kb_search_agent`, `kb_record_agent` | Wraps remote agents to add formatting, structured output, and transfer control |
-| Direct `RemoteA2aAgent` | `kb_resolve_remote` | No wrapper needed — root agent transfers directly; KB agent's L3 skill handles the multi-turn conversation |
-| `include_contents="none"` | `kb_search_agent`, `response_presenter_agent`, `research_aggregator_agent` | Forces the LLM to reformat sub-agent output rather than echoing it |
+| `RemoteA2aAgent` | `kb_record_remote`, `kb_resolve_remote` | Connects to the Error KB Agent on Cloud Run via A2A protocol |
+| `LlmAgent` wrapper | `kb_record_agent` | Wraps remote agent to add `output_schema` and capture case ID in state |
+| `include_contents="none"` | `kb_search_agent`, `kb_record_agent`, `gcp_knowledge_formatter_agent`, `response_presenter_agent`, `research_aggregator_agent` | Forces agents to read only from ADK state keys, not full conversation history — reduces token usage |
 | `output_schema` | Signal extractor, formatters, aggregator, KB recorder | Enforces Pydantic models for structured inter-agent data flow |
 | `output_key` | All schema-producing agents | Writes structured output to session state for downstream agents |
-| `disallow_transfer_to_*` | All pipeline agents + KB search and record agents | Prevents early bailout — agents must complete their full formatted response before returning |
+| `disallow_transfer_to_*` | All pipeline agents + KB search/record agents | Prevents early bailout — agents must complete their full response before returning |
+| ADK Artifacts | `generate_pdf_report` tool | Saves PDF bytes to GCS via `tool_context.save_artifact()`; ADK web UI renders a download link automatically |
 
 ---
 
@@ -290,42 +284,10 @@ curl https://<YOUR_MAS_URL>/.well-known/agent.json
 | `error_triage_result` | `signal_extractor_agent` | All downstream pipeline agents |
 | `gcp_knowledge_research_result` | `gcp_knowledge_formatter_agent` | `research_aggregator_agent` |
 | `community_research_result` | `web_search_formatter` | `research_aggregator_agent` |
-| `synthesis_result` | `research_aggregator_agent` | `kb_record_agent`, `response_presenter_agent` |
-| `kb_record_result` | `kb_record_agent` | `response_presenter_agent` (case ID in the report) |
+| `synthesis_result` | `research_aggregator_agent` | `kb_record_agent`, `response_presenter_agent`, `generate_pdf_report` |
+| `kb_record_result` | `kb_record_agent` | `response_presenter_agent`, `generate_pdf_report` (case ref) |
 
 All models are defined in `error_lens_agent/models.py`.
-
----
-
-## Integrations
-
-| Integration | Endpoint | Used By |
-|-------------|----------|---------|
-| Developer Knowledge MCP | `https://developerknowledge.googleapis.com/mcp` | `gcp_knowledge_agent` |
-| Google built-in search | ADK built-in `google_search` tool | `community_search_agent` |
-| Error KB Agent (A2A) | Configured via `KB_AGENT_URL` env var | `kb_search_remote`, `kb_record_remote`, `kb_resolve_remote` |
-
----
-
-## Configuration Reference
-
-All runtime constants live in `error_lens_agent/config/config.py` and are overridden via `.env`.
-
-> There are no hardcoded defaults for model variables — they must be set in `.env`. The example values in the Getting Started section are recommended starting points.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MODEL_PROVIDER` | `gemini` | Provider switch: `gemini` or `anthropic` |
-| `GEMINI_MODEL_MAX_REASONING` | _(set in `.env`)_ | Gemini model for deep reasoning |
-| `GEMINI_MODEL_BALANCED` | _(set in `.env`)_ | Gemini model for balanced tasks (root, presenter, all KB agents) |
-| `GEMINI_MODEL_FAST` | _(set in `.env`)_ | Gemini model for fast/lightweight tasks (signal extractor, research formatters) |
-| `GOOGLE_SEARCH_MODEL` | `gemini-2.5-flash` | Dedicated model for `google_search` tool |
-| `GOOGLE_CLOUD_REGION` | `us-central1` | GCP region |
-| `DEVELOPER_KNOWLEDGE_API_KEY` | `""` | Auth for Developer Knowledge MCP |
-| `GOOGLE_API_KEY` | `""` | Gemini access via Google AI Studio |
-| `KB_AGENT_URL` | `http://localhost:8001` | URL of the Error KB Agent (A2A) |
-| `KB_SIMILARITY_THRESHOLD` | `0.85` | Minimum similarity for a knowledge bank match to be considered confident |
-| `MAX_RESEARCH_OUTPUT_TOKENS` | `1500` | Token cap for raw research responses before formatting |
 
 ---
 
@@ -335,26 +297,26 @@ All runtime constants live in `error_lens_agent/config/config.py` and are overri
 error-lens-mas/
 │
 ├── error_lens_agent/
-│   ├── __init__.py
-│   ├── agent.py                 # Root agent, quick_scan, sage_pipeline, presenter
+│   ├── __init__.py              # Re-exports root_agent and artifact_service for ADK discovery
+│   ├── agent.py                 # Root agent, quick_scan, sage_pipeline, response_presenter
 │   ├── models.py                # Pydantic output schemas
 │   ├── prompts.py               # All agent instructions
+│   ├── token_tracker.py         # after_model_callback for token/cost tracking
 │   ├── .env                     # Environment variables (git-ignored)
 │   ├── .env.template            # Template with placeholders
 │   ├── config/
-│   │   ├── __init__.py
-│   │   └── config.py            # Central config — models, endpoints, thresholds
+│   │   ├── config.py            # Central config — models, endpoints, thresholds
+│   │   └── artifact_service.py  # ArtifactService instance (InMemory locally, GCS on Cloud Run)
 │   ├── tools/
-│   │   ├── __init__.py
-│   │   └── mcp_config.py        # MCP tool connections (Developer Knowledge)
+│   │   ├── mcp_config.py        # Developer Knowledge MCP tool connection
+│   │   └── report_pdf_tool.py   # generate_pdf_report — builds PDF, saves as ADK Artifact
 │   └── sub_agents/
-│       ├── __init__.py
 │       ├── signal_extractor_agent.py
 │       ├── deep_search_agent.py
 │       ├── gcp_knowledge_agent.py
 │       ├── community_search_agent.py
 │       ├── research_aggregator_agent.py
-│       └── knowledge_bank_agent.py   # KB search + record + resolve (LlmAgent → RemoteA2aAgent)
+│       └── knowledge_bank_agent.py   # KB search + record + resolve
 ├── pyproject.toml
 ├── uv.lock
 └── README.md
@@ -366,12 +328,14 @@ error-lens-mas/
 
 | Technology | Role |
 |------------|------|
-| [Google ADK](https://google.github.io/adk-docs/) | Multi-agent orchestration framework |
+| [Google ADK](https://google.github.io/adk-docs/) | Multi-agent orchestration framework + ADK Artifacts |
 | [Gemini 2.5](https://deepmind.google/technologies/gemini/) | LLM backbone across the pipeline |
 | [Developer Knowledge MCP](https://docs.cloud.google.com/mcp/supported-products) | Official GCP documentation search |
 | [A2A Protocol](https://google.github.io/A2A/) | Agent-to-agent communication with Error KB Agent |
 | [Pydantic](https://docs.pydantic.dev/) | Structured schemas for inter-agent data flow |
-| [AlloyDB + pgvector](https://cloud.google.com/alloydb/docs/ai/work-with-embeddings) | Vector similarity search for the knowledge bank (via Error KB Toolbox) |
+| [fpdf2](https://py-pdf.github.io/fpdf2/) | PDF report generation with Google Material pastel design |
+| [Google Cloud Storage](https://cloud.google.com/storage) | Durable artifact storage for generated reports |
+| [AlloyDB + pgvector](https://cloud.google.com/alloydb/docs/ai/work-with-embeddings) | Vector similarity search for the knowledge bank |
 
 ---
 

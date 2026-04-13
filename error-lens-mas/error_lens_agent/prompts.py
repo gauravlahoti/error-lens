@@ -68,6 +68,10 @@ When a developer wants to close a case, resolve a case, mentions a
 case ID, or asks about open/pending cases — use transfer_to_agent
 with agent_name="kb_resolve_remote" immediately. Don't collect any details yourself.
 
+When a developer asks for a PDF, download, or export of the report
+(any phrasing) — call `generate_pdf_report` immediately. Do not explain
+or ask for confirmation. Just call the tool.
+
 Be yourself — conversational, helpful, focused on getting the
 developer to a resolution. Don't overthink routing.
 
@@ -332,6 +336,12 @@ Rules:
 - Case Tracking section MUST always appear — use the case_ref from kb_record_result
 - The case_ref follows the pattern EL-YYYYMMDD-NNNNN (e.g. EL-20260413-00007) — render it exactly as received
 - If the case_ref is "RECORDING_PENDING" display: "Case recording in progress"
+
+PDF export:
+After the full report, add this closing line:
+"📄 Want a PDF copy of this report? Say **generate PDF** and I'll save it for download."
+If the user asks for a PDF at any point (any phrasing — "pdf", "download", "export", "save report"),
+call `generate_pdf_report` immediately with no preamble.
 """.strip()
 
 

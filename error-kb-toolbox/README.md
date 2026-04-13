@@ -25,8 +25,9 @@ Used by the **Error KB Agent** (and consumed by **ErrorLens MAS**) to store, ret
 | `search-similar-errors` | Semantic vector search over **resolved** cases with confirmed fixes. Only returns matches with similarity ≥ 0.85. |
 | `deposit-fix` | Records a confirmed fix for an existing case, sets status to `resolved`, and **regenerates the embedding** to include the fix text. |
 | `get-open-cases` | Lists all unresolved cases ordered by severity (critical → low) then creation date. |
-| `get-case-by-id` | Retrieves full details for a single case by its UUID. |
-| `record-new-error` | Inserts a newly triaged error as an `open` case with an auto-generated `text-embedding-005` vector. |
+| `get-case-by-id` | Retrieves full details for a single case by its case reference. |
+| `record-new-error` | Inserts a newly triaged error as an `open` case with an auto-generated `text-embedding-005` vector (built from `error_message + error_summary + gcp_service`). |
+| `get-kb-stats` | Returns resolved and open case counts. Accepts a `project_id` or `'all'` for global totals. Used by the MAS root agent on greeting. |
 
 All tools belong to a single toolset named **`error-kb-toolbox`**.
 
@@ -37,6 +38,7 @@ All tools belong to a single toolset named **`error-kb-toolbox`**.
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | `UUID` | Primary key, auto-generated via `gen_random_uuid()` |
+| `case_ref` | `TEXT` | Human-readable case reference (e.g. `EL-20260413-00001`) |
 | `error_message` | `TEXT` | Raw error message |
 | `error_summary` | `TEXT` | One-sentence normalised summary |
 | `gcp_service` | `TEXT` | Primary GCP service (e.g. `Cloud Run`, `BigQuery`) |
@@ -47,6 +49,7 @@ All tools belong to a single toolset named **`error-kb-toolbox`**.
 | `confirmed_fix` | `TEXT` | Developer-confirmed fix description |
 | `fix_source` | `TEXT` | `gcp_docs`, `community`, or `internal` |
 | `overall_confidence` | `FLOAT` | Confidence score (0.0–1.0) |
+| `project_id` | `TEXT` | GCP project ID of the reporting team |
 | `embedding` | `VECTOR(768)` | `text-embedding-005` vector for similarity search |
 | `created_at` | `TIMESTAMPTZ` | Case creation timestamp |
 | `resolved_at` | `TIMESTAMPTZ` | Case resolution timestamp |
@@ -62,7 +65,7 @@ All tools belong to a single toolset named **`error-kb-toolbox`**.
 | `pgvector` extension | Available on AlloyDB by default |
 | `google_ml_integration` extension | Enables in-database `embedding()` function via Vertex AI |
 | [MCP Toolbox for Databases](https://github.com/googleapis/genai-toolbox) binary | v0.31.0+ for local development |
-| `gcloud` CLI | Installed and authenticated (`gcloud auth login`) |
+| `gcloud` CLI | Installed and authenticated |
 
 ---
 
@@ -70,22 +73,12 @@ All tools belong to a single toolset named **`error-kb-toolbox`**.
 
 ### 1. Install uv
 
-`uv` is the package manager used across this project. Skip this step if you already have it.
-
 ```bash
 # macOS / Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-```
 
-```bash
 # Windows (PowerShell)
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-Verify:
-
-```bash
-uv --version
 ```
 
 ### 2. Clone and navigate
@@ -103,15 +96,13 @@ gcloud auth application-default login
 gcloud auth application-default set-quota-project <YOUR_PROJECT_ID>
 ```
 
-Enable the Vertex AI API (required for the `google_ml_integration` extension to generate embeddings in-database):
+Enable the Vertex AI API (required for the `google_ml_integration` extension):
 
 ```bash
 gcloud services enable aiplatform.googleapis.com
 ```
 
 ### 4. Download the toolbox binary
-
-Pick the binary for your OS/arch from the [MCP Toolbox releases](https://github.com/googleapis/genai-toolbox/releases) page.
 
 ```bash
 # macOS ARM64 example
@@ -126,8 +117,6 @@ chmod +x toolbox
 cp .env.template .env
 ```
 
-Open `.env` and fill in your values:
-
 | Variable | Example | Description |
 |----------|---------|-------------|
 | `PROJECT_ID` | `my-gcp-project` | Your GCP project ID |
@@ -138,22 +127,23 @@ Open `.env` and fill in your values:
 | `DATABASE_NAME` | `postgres` | Database name |
 | `DB_USER` | `postgres` | Database user |
 | `DB_PASSWORD` | — | Database password |
-| `SERVICE_NAME` | `error-kb-toolbox` | Cloud Run service name (for deployment) |
-| `SERVICE_ACCOUNT` | `sa@project.iam.gserviceaccount.com` | Cloud Run service account (for deployment) |
-| `IMAGE` | `us-docker.pkg.dev/google.com/cloudsdktool/toolbox:latest` | Toolbox container image — use a [release tag](https://github.com/googleapis/genai-toolbox/releases) |
+| `SERVICE_NAME` | `error-kb-toolbox` | Cloud Run service name |
+| `IMAGE` | `us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest` | Toolbox container image |
 
 ### 6. Prepare the database
 
-Connect to your AlloyDB instance (e.g. via `psql` or Cloud Shell) and run:
+Connect to your AlloyDB instance and run:
 
 ```sql
--- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS google_ml_integration;
 
--- Create the error knowledge bank table
 CREATE TABLE IF NOT EXISTS error_knowledge_bank (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    case_ref            TEXT        GENERATED ALWAYS AS (
+                            'EL-' || TO_CHAR(created_at, 'YYYYMMDD') || '-' ||
+                            LPAD(CAST(ROW_NUMBER() OVER (ORDER BY created_at) AS TEXT), 5, '0')
+                        ) STORED,
     error_message       TEXT        NOT NULL,
     error_summary       TEXT        NOT NULL,
     gcp_service         TEXT        NOT NULL,
@@ -164,28 +154,14 @@ CREATE TABLE IF NOT EXISTS error_knowledge_bank (
     confirmed_fix       TEXT,
     fix_source          TEXT,
     overall_confidence  FLOAT,
+    project_id          TEXT,
     embedding           VECTOR(768),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     resolved_at         TIMESTAMPTZ
 );
 ```
 
-Verify everything is in place:
-
-```sql
-SELECT extname FROM pg_extension WHERE extname IN ('vector', 'google_ml_integration');
-SELECT tablename FROM pg_tables WHERE tablename = 'error_knowledge_bank';
-```
-
-### 7. Review `tools.yaml`
-
-The file uses a flat **multi-document YAML** format with `---` separators — one document per source, tool, or toolset.
-
-> **Warning:** Do not auto-format this file. YAML formatters will break the multi-document structure that MCP Toolbox requires.
-
-See [tools.yaml](tools.yaml) for the full configuration.
-
-### 8. Run locally
+### 7. Run locally
 
 > **Toolbox v0.31.0+ breaking change:** The REST API is disabled by default. Pass `--enable-api` for the UI and API endpoints to work.
 
@@ -194,26 +170,15 @@ source .env
 ./toolbox --config tools.yaml --ui --enable-api
 ```
 
-Open http://127.0.0.1:5000/ui/toolsets, type `error-kb-toolbox` in the search box, and click to load the tools. You can test each tool directly from the UI.
+Open http://127.0.0.1:5000/ui/toolsets and test tools interactively.
 
 ---
 
 ## Deploying to Cloud Run
 
-### 1. Enable required APIs
+The toolbox is deployed using a pre-built container image. `tools.yaml` is stored in Secret Manager and mounted at runtime.
 
-```bash
-gcloud services enable run.googleapis.com secretmanager.googleapis.com \
-    --project=$PROJECT_ID
-```
-
-### 2. Source your environment
-
-```bash
-source .env
-```
-
-### 3. Store `tools.yaml` in Secret Manager
+### 1. Store `tools.yaml` in Secret Manager
 
 First time:
 
@@ -231,12 +196,12 @@ gcloud secrets versions add error-kb-tools \
     --data-file=tools.yaml
 ```
 
-### 4. Deploy
+### 2. Deploy
 
 ```bash
+source .env
 gcloud run deploy $SERVICE_NAME \
     --image $IMAGE \
-    --service-account $SERVICE_ACCOUNT \
     --region $REGION \
     --project $PROJECT_ID \
     --set-secrets "/app/tools.yaml=error-kb-tools:latest" \
@@ -246,22 +211,20 @@ gcloud run deploy $SERVICE_NAME \
     --allow-unauthenticated
 ```
 
-The CLI prints a URL like `https://error-kb-toolbox-xxxxxx.us-central1.run.app`.
+> **Important:** Do not use `--source .` — the toolbox is an image-based deployment, not a buildpack project.
 
-### 5. Verify
+### 3. Verify
 
 ```bash
 curl https://<YOUR_TOOLBOX_URL>/api/toolset/error-kb-toolbox
 ```
-
-You should get back a JSON list of the five tools.
 
 ---
 
 ## Known Constraints
 
 - **`type: float` not supported** by toolbox-core's A2A agent card builder. The `overall_confidence` parameter in `record-new-error` uses `type: string` with a `$7::float` SQL cast as a workaround.
-- **UUID formatting:** All SELECT statements use `id::text AS id` to ensure UUIDs are returned in standard `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` format rather than numeric.
+- **`tools.yaml` must not be auto-formatted** — it is a multi-document YAML (`---` separators). YAML formatters collapse the multi-document structure that MCP Toolbox requires.
 
 ---
 
@@ -270,10 +233,10 @@ You should get back a JSON list of the five tools.
 ```text
 error-kb-toolbox/
 ├── toolbox            # MCP Toolbox binary (git-ignored)
-├── tools.yaml         # Source, tool, and toolset definitions
-├── pyproject.toml     # Project metadata
+├── tools.yaml         # Source, tool, and toolset definitions (multi-document YAML)
+├── pyproject.toml
 ├── .env               # Environment variables (git-ignored)
-├── .env.template      # Template with placeholders
+├── .env.template
 └── README.md
 ```
 
@@ -281,5 +244,5 @@ error-kb-toolbox/
 
 ## Related
 
-- [Error KB Agent](../error-kb-agent/README.md) — ADK agent that wraps this toolbox and exposes it via A2A, using L1/L2/L3 skills for runtime workflow discovery
+- [Error KB Agent](../error-kb-agent/README.md) — ADK agent that wraps this toolbox and exposes it via A2A
 - [ErrorLens MAS](../error-lens-mas/README.md) — Multi-agent pipeline that triages GCP errors and populates the knowledge bank

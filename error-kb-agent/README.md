@@ -22,11 +22,11 @@ The agent uses ADK's **skills system** to discover workflows at runtime via **pr
 
 ```text
 ┌─────────────────┐       A2A Protocol       ┌──────────────────┐    ToolboxToolset    ┌──────────────────┐
-│  a2a_client     │ ──────────────────────▶  │  Error KB Agent  │ ────────────────── ▶ │  Error KB        │
-│  (local ADK)    │   RemoteA2aAgent         │  (Cloud Run)     │   HTTP/REST          │  Toolbox         │
+│  ErrorLens MAS  │ ──────────────────────▶  │  Error KB Agent  │ ────────────────── ▶ │  Error KB        │
+│  (Cloud Run)    │   RemoteA2aAgent         │  (Cloud Run)     │   HTTP/REST          │  Toolbox         │
 │                 │                           │                  │                      │  (Cloud Run)     │
-│  root_agent     │                           │  ADK + to_a2a()  │                      │  MCP Toolbox     │
-│  + sub_agent    │                           │  + uvicorn       │                      │  + AlloyDB       │
+│  a2a_client     │                           │  ADK + to_a2a()  │                      │  MCP Toolbox     │
+│  (local test)   │                           │  + uvicorn       │                      │  + AlloyDB       │
 └─────────────────┘                           └──────────────────┘                      └──────────────────┘
 ```
 
@@ -48,22 +48,12 @@ The agent uses ADK's **skills system** to discover workflows at runtime via **pr
 
 ### 1. Install uv
 
-`uv` is the package manager used across this project. Skip this step if you already have it.
-
 ```bash
 # macOS / Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-```
 
-```bash
 # Windows (PowerShell)
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-Verify:
-
-```bash
-uv --version
 ```
 
 ### 2. Clone and navigate
@@ -80,15 +70,6 @@ uv venv
 uv sync
 ```
 
-`uv sync` reads `pyproject.toml` and `uv.lock` and installs all pinned dependencies — including `google-adk[a2a]`, `python-dotenv`, `toolbox-adk`, and `toolbox-core` — into the local `.venv`.
-
-> **Building from scratch?** If you were starting a new project instead of cloning, you would run:
-> ```bash
-> uv init my-kb-agent
-> cd my-kb-agent
-> uv add "google-adk[a2a]" python-dotenv toolbox-adk toolbox-core
-> ```
-
 ### 4. Authenticate with Google Cloud
 
 ```bash
@@ -102,8 +83,6 @@ gcloud auth application-default set-quota-project <YOUR_PROJECT_ID>
 cp error_kb_agent/.env.template error_kb_agent/.env
 ```
 
-Open `error_kb_agent/.env` and fill in:
-
 | Variable | Example | Description |
 |----------|---------|-------------|
 | `GOOGLE_GENAI_USE_VERTEXAI` | `1` | `1` for Vertex AI, `0` for AI Studio |
@@ -111,6 +90,7 @@ Open `error_kb_agent/.env` and fill in:
 | `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
 | `TOOLBOX_URL` | `https://error-kb-toolbox-xxx.run.app` | URL of your Error KB Toolbox deployment |
 | `MODEL` | `gemini-2.5-flash` | Gemini model name |
+| `A2A_BASE_URL` | `https://error-kb-agent-xxx.run.app` | Public URL advertised in the A2A agent card |
 
 ### 6. Run locally with ADK Web
 
@@ -119,8 +99,6 @@ uv run adk web
 ```
 
 Open http://localhost:8000 and select `error_kb_agent` from the agent dropdown.
-
-> **Important:** Use `uv run adk web` (not bare `adk web`) to ensure the virtual environment with the `[a2a]` extra is active.
 
 ---
 
@@ -131,23 +109,22 @@ The agent is exposed as an A2A-compatible server using `to_a2a()` and served via
 ### 1. Enable required APIs
 
 ```bash
-gcloud services enable run.googleapis.com \
-    --project <YOUR_PROJECT_ID>
+gcloud services enable run.googleapis.com --project <YOUR_PROJECT_ID>
 ```
 
 ### 2. Build and deploy
 
 ```bash
+cd error-kb-agent
 gcloud run deploy error-kb-agent \
     --source . \
     --region us-central1 \
     --project <YOUR_PROJECT_ID> \
     --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=1,GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID>,GOOGLE_CLOUD_LOCATION=us-central1,TOOLBOX_URL=<YOUR_TOOLBOX_URL>,MODEL=gemini-2.5-flash,A2A_BASE_URL=https://error-kb-agent-<PROJECT_NUMBER>.us-central1.run.app" \
-    --port=8080 \
     --allow-unauthenticated
 ```
 
-> **Important:** Set `A2A_BASE_URL` to the Cloud Run service URL so the agent card advertises the correct public endpoint instead of `localhost:8080`.
+> **Note:** Do not pass `--port`. The Dockerfile listens on port 8080 by default and Cloud Run detects this automatically. Passing `--port 8001` causes a startup failure.
 
 ### 3. Verify the agent card
 
@@ -155,11 +132,7 @@ gcloud run deploy error-kb-agent \
 curl https://<YOUR_AGENT_URL>/.well-known/agent.json
 ```
 
-You should see the agent card JSON with the agent's skills and capabilities listed.
-
 ### Dockerfile
-
-The included `Dockerfile` uses `python:3.14-slim` with `uv` for dependency management:
 
 ```dockerfile
 FROM python:3.14-slim
@@ -174,31 +147,15 @@ CMD ["uv", "run", "uvicorn", "error_kb_agent.agent:a2a_app", "--host", "0.0.0.0"
 
 ---
 
-## A2A Client (Local Orchestrator)
+## A2A Client (Local Test Orchestrator)
 
-The `a2a_client/` directory contains a standalone local ADK agent that connects to the remote Error KB Agent via the A2A protocol. Use this to test the deployed agent interactively.
-
-### 1. Set up environment
+The `a2a_client/` directory contains a standalone local ADK agent that connects to the remote Error KB Agent via the A2A protocol.
 
 ```bash
 cp a2a_client/.env.template a2a_client/.env
-```
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `GOOGLE_GENAI_USE_VERTEXAI` | `1` | `1` for Vertex AI |
-| `GOOGLE_CLOUD_PROJECT` | `my-gcp-project` | Your GCP project ID |
-| `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
-| `ERROR_KB_AGENT_URL` | `https://error-kb-agent-xxx.run.app` | Cloud Run URL of the Error KB Agent |
-| `MODEL` | `gemini-2.5-flash` | Model for the local orchestrator |
-
-### 2. Run
-
-```bash
+# set GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, ERROR_KB_AGENT_URL, MODEL
 uv run adk web a2a_client
 ```
-
-Open http://localhost:8000 and select the `root_agent`. It delegates error-related queries to the remote `error_kb_agent` via `RemoteA2aAgent`.
 
 ---
 
@@ -206,20 +163,18 @@ Open http://localhost:8000 and select the `root_agent`. It delegates error-relat
 
 The agent does **not** hard-code tool names in its instruction. Instead it discovers capabilities at runtime through ADK's `SkillToolset`:
 
-1. **`list_skills`** (L1 — auto-injected) — runs automatically on every LLM request via `process_llm_request()`. Returns an XML listing of all skill names and descriptions (~50 tokens per skill). The agent does **not** need to call this explicitly.
-2. **`load_skill`** (L2 — on demand) — the agent calls this to load a skill's `SKILL.md`, which contains the full workflow: tools to use, step-by-step instructions, and rules (~500 tokens).
-3. **`load_skill_resource`** (L3 — on demand) — loads reference files from a skill's `references/` directory (output format guides, field validation, workflow guides). Token cost varies by file.
+1. **`list_skills`** — auto-injected on every LLM request. Returns skill names and descriptions. The agent does not call this explicitly.
+2. **`load_skill`** — **MANDATORY first action** on every request. The agent must call this before any other tool or text response. It loads the skill's `SKILL.md` with the full workflow: tools, steps, and rules.
+3. **`load_skill_resource`** — on demand. Loads reference files from a skill's `references/` directory.
 4. The agent follows the steps from the loaded skill and calls the corresponding domain tools.
 
 ### Skill Tiers — L1 / L2 / L3
 
-Skills are grouped into three tiers based on complexity and the level of orchestration they require:
-
 | Tier | Complexity | Turns | Skills | Description |
 |------|-----------|-------|--------|-------------|
-| **L1 — Lookup** | Low | Single tool call → formatted response | `search-errors`, `open-cases` | Read-only database queries that return results for the agent to format. No multi-step interaction. |
-| **L2 — Guided workflow** | Medium | Multi-step with reference guides | `log-error` | Requires field validation against a reference guide before calling the tool. Agent loads the guide, validates, then executes. |
-| **L3 — Conversational** | High | Multi-turn conversation with sequential tool calls | `resolve-case` | Guided multi-step flow: retrieve case details → present suggested fixes → collect engineer confirmation → deposit fix. Requires the agent to manage conversation state across turns. |
+| **L1 — Lookup** | Low | Single tool call | `search-errors`, `open-cases` | Read-only database queries |
+| **L2 — Guided workflow** | Medium | Multi-step with reference guides | `log-error` | Field validation before executing write |
+| **L3 — Conversational** | High | Multi-turn conversation | `resolve-case` | Guided flow: retrieve → present → confirm → deposit |
 
 ### Skill Inventory
 
@@ -230,54 +185,25 @@ Skills are grouped into three tiers based on complexity and the level of orchest
 | `log-error` | L2 | `record-new-error` | `field_guide.md` |
 | `resolve-case` | L3 | `get-case-by-id`, `deposit-fix` | `workflow_guide.md` |
 
-### Skill directory structure
-
-```text
-skills/
-├── search-errors/
-│   ├── SKILL.md                          # Steps, tools, rules
-│   └── references/
-│       ├── similarity_guide.md           # Score ranges, threshold 0.85
-│       └── output_style_guide.md         # Table format, no-results handling
-├── open-cases/
-│   ├── SKILL.md
-│   └── references/
-│       └── output_style_guide.md         # Sort by severity, table format
-├── log-error/
-│   ├── SKILL.md
-│   └── references/
-│       └── field_guide.md                # 7 required fields, validation rules
-└── resolve-case/
-    ├── SKILL.md
-    └── references/
-        └── workflow_guide.md             # 4-step conversation flow
-```
-
 ---
 
 ## Callbacks
 
-One code-level callback enforces agent behaviour deterministically — independent of prompt instructions:
-
 | Callback | Type | Purpose |
 |----------|------|---------|
-| `_require_skill_first` | `before_tool_callback` | Blocks domain tools until a skill has been loaded. Since `list_skills` is auto-injected (L1), this ensures the agent calls `load_skill` (L2) before any database tool. Uses a module-level flag that resets per session. |
+| `_require_skill_first` | `before_tool_callback` | Blocks all domain tools until `load_skill` has been called in the current session. Uses a session-state flag (`_skill_loaded`) reset per request. Enforces correct skill-first ordering independent of LLM behaviour. |
 
 ---
 
 ## Close-Case Flow (L3 — resolve-case skill)
 
-When a user asks to close or resolve a case, the agent loads the `resolve-case` skill and follows a guided multi-step conversation:
-
 1. Loads `workflow_guide.md` reference for conversation flow rules
 2. Asks for the **case ID** (if not provided)
 3. Calls `get-case-by-id` to retrieve the case and its `suggested_fixes`
-4. Presents the suggested fixes as a **numbered list**
-5. Asks the user **which fix** resolved the issue — or accepts a custom solution
+4. Presents the suggested fixes as a numbered list
+5. Asks which fix resolved the issue — or accepts a custom solution
 6. Asks for the **fix source**: `gcp_docs`, `community`, or `internal`
-7. Calls `deposit-fix` — which also **regenerates the embedding** to include the confirmed fix
-
-Custom solutions are prefixed with `"Other solution: <description>"` for traceability.
+7. Calls `deposit-fix` — which regenerates the embedding to include the confirmed fix
 
 ---
 
@@ -285,52 +211,21 @@ Custom solutions are prefixed with `"Other solution: <description>"` for traceab
 
 ```text
 error-kb-agent/
-├── error_kb_agent/           # Agent package (deployed to Cloud Run)
-│   ├── __init__.py
-│   ├── agent.py              # Agent definition, callbacks, skills, A2A via to_a2a()
+├── error_kb_agent/
+│   ├── agent.py              # root_agent, _require_skill_first callback, a2a_app via to_a2a()
 │   ├── tools.py              # ToolboxToolset connection
-│   ├── prompts.py            # (archived — original prompt; superseded by inline instructions + SKILL.md files)
 │   ├── skills/               # ADK skills — L1/L2/L3 workflow definitions
-│   │   ├── search-errors/    # L1 — semantic similarity search
-│   │   │   ├── SKILL.md
-│   │   │   └── references/
-│   │   │       ├── similarity_guide.md
-│   │   │       └── output_style_guide.md
-│   │   ├── open-cases/       # L1 — list unresolved cases
-│   │   │   ├── SKILL.md
-│   │   │   └── references/
-│   │   │       └── output_style_guide.md
-│   │   ├── log-error/        # L2 — validated error recording
-│   │   │   ├── SKILL.md
-│   │   │   └── references/
-│   │   │       └── field_guide.md
-│   │   └── resolve-case/     # L3 — guided multi-turn case closure
-│   │       ├── SKILL.md
-│   │       └── references/
-│   │           └── workflow_guide.md
+│   │   ├── search-errors/
+│   │   ├── open-cases/
+│   │   ├── log-error/
+│   │   └── resolve-case/
 │   ├── .env                  # Environment variables (git-ignored)
-│   └── .env.template         # Template with placeholders
+│   └── .env.template
 ├── a2a_client/               # Local A2A orchestrator for testing
-│   ├── __init__.py
-│   ├── agent.py              # RemoteA2aAgent + root_agent
-│   ├── .env                  # Environment variables (git-ignored)
-│   └── .env.template         # Template with placeholders
-├── Dockerfile                # Container for Cloud Run deployment
+├── Dockerfile
 ├── pyproject.toml
-├── uv.lock
 └── README.md
 ```
-
----
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `error_kb_agent/agent.py` | Defines `root_agent` with SkillToolset + ToolboxToolset, `_require_skill_first` callback, and `a2a_app` via `to_a2a()`. Uses `A2A_BASE_URL` env var + `urlparse` to set the correct public hostname. |
-| `error_kb_agent/tools.py` | Connects to MCP Toolbox via `ToolboxToolset(server_url=TOOLBOX_URL, toolset_name="error-kb-toolbox")` |
-| `error_kb_agent/prompts.py` | Archived — agent instructions are now inline in `agent.py` + skill-driven via `SKILL.md` files |
-| `a2a_client/agent.py` | Local orchestrator with `RemoteA2aAgent(use_legacy=True)` pointing at the deployed agent |
 
 ---
 
