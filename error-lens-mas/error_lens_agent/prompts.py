@@ -345,53 +345,53 @@ call `generate_pdf_report` immediately with no preamble.
 """.strip()
 
 
-kb_record_instruction = f"""
-You record errors into the ErrorLens knowledge bank. You do NOT have
-any tools yourself — you MUST transfer to kb_record_remote to perform
-the actual write.
+kb_record_input_instruction = f"""
+You extract error fields from session state into a structured knowledge bank record.
 
-Here is the data you need (already in session state):
-  {{error_triage_result?}}
-  {{synthesis_result?}}
+Error context:
+{{error_triage_result?}}
 
-Your one and only job:
-  1. Extract these seven fields from session state:
-     - error_message:      from error_triage_result.error_message (the raw error text)
-     - error_summary:      a one-sentence normalised summary of the error
-     - gcp_service:        from error_triage_result.primary_service
-     - severity:           from error_triage_result.severity
-     - root_cause:         from synthesis_result.root_cause
-     - suggested_fixes:    the FULL synthesis_result as a JSON string — include
-                           ranked_fixes with all fields (rank, title, steps,
-                           source, source_url, confidence, why_recommended,
-                           supporting_sources, supporting_urls), plus
-                           overall_confidence, fallback_guidance, sources_agreed,
-                           and sources_contradicted
-     - overall_confidence: from synthesis_result.overall_confidence (as a decimal string)
+Synthesis result:
+{{synthesis_result?}}
 
-  2. Use this hardcoded value — do NOT look for it in session state:
-     - project_id: "{GOOGLE_CLOUD_PROJECT}"
+Extract and return:
+- error_message:      exact raw error text from error_triage_result.error_message
+- error_summary:      one-sentence normalized summary of the error
+- gcp_service:        from error_triage_result.primary_service
+- severity:           from error_triage_result.severity (must be: low/medium/high/critical)
+- root_cause:         from synthesis_result.root_cause
+- suggested_fixes:    the FULL synthesis_result serialized as a compact JSON string
+- overall_confidence: from synthesis_result.overall_confidence as a decimal string (e.g. "0.87")
+- project_id:         always use exactly "{GOOGLE_CLOUD_PROJECT}" — do not read from state
+""".strip()
 
-  3. Transfer to kb_record_remote with a message containing ALL eight
-     fields above. Every field is required — do not skip any.
 
-  4. Wait for kb_record_remote to respond with the actual case_ref.
-     The case_ref returned by the knowledge bank is a human-friendly
-     reference that looks like this:
-       EL-20260413-00001
-     It is NEVER a raw UUID. Extract that exact case_ref from
-     kb_record_remote's response and return it verbatim in your
-     structured output as the case_ref field.
+kb_record_instruction = """
+You transfer a pre-built knowledge bank record to the remote recording agent.
 
-CRITICAL — case_ref rules:
-- The case_ref MUST be copied verbatim from kb_record_remote's response.
-- A valid case_ref matches the pattern: EL-YYYYMMDD-NNNNN
-  (e.g. "EL-20260413-00007").
-- NEVER generate, invent, or fabricate a case_ref yourself.
-- If kb_record_remote is unreachable, returns a connection error, or times out,
-  set case_ref to "RECORDING_PENDING" immediately and return — do not retry.
-- If kb_record_remote's response does not contain a case_ref, set case_ref to
-  "RECORDING_PENDING" — never guess.
+The record is already structured in session state:
+{kb_record_input?}
+
+Steps:
+1. Transfer to kb_record_remote with ALL fields from kb_record_input formatted as
+   labeled key-value pairs so the remote agent can parse them cleanly.
+2. If kb_record_remote asks any follow-up question, answer immediately using
+   the exact values from kb_record_input — never say a field is unavailable.
+3. Your final response MUST contain the case_ref returned by kb_record_remote
+   in the format EL-YYYYMMDD-NNNNN (e.g. EL-20260413-00007). Copy it verbatim.
+   If kb_record_remote is unreachable or fails: respond "RECORDING_PENDING — [reason]."
+""".strip()
+
+
+kb_record_formatter_instruction = """
+You extract the case_ref from a knowledge bank response.
+
+KB agent response:
+{kb_record_raw_response?}
+
+Find the case reference in the format EL-YYYYMMDD-NNNNN (e.g. EL-20260413-00007).
+If no valid case_ref matching this pattern is found, return RECORDING_PENDING.
+Return only the structured output — no explanation.
 """.strip()
 
 

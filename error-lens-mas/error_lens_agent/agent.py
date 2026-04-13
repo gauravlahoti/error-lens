@@ -6,7 +6,7 @@ from error_lens_agent.token_tracker import make_token_tracker
 from error_lens_agent.sub_agents.signal_extractor_agent import signal_extractor_agent
 from error_lens_agent.sub_agents.deep_search_agent import deep_search_agent
 from error_lens_agent.sub_agents.research_aggregator_agent import research_aggregator_agent
-from error_lens_agent.sub_agents.knowledge_bank_agent import kb_record_agent, kb_search_agent, kb_resolve_remote, kb_stats_toolset
+from error_lens_agent.sub_agents.knowledge_bank_agent import kb_record_pipeline, kb_search_agent, kb_resolve_remote, kb_stats_toolset
 from error_lens_agent.tools.report_pdf_tool import generate_pdf_report
 from error_lens_agent.prompts import (
     root_agent_instruction,
@@ -49,7 +49,7 @@ sage_pipeline = SequentialAgent(
     sub_agents=[
         deep_search_agent,          # step 1 — parallel research across all sources
         research_aggregator_agent,  # step 2 — aggregates findings, scores confidence
-        kb_record_agent,            # step 3 — records new case in knowledge bank
+        kb_record_pipeline,         # step 3 — records new case in knowledge bank
         response_presenter_agent,   # step 4 — formats and delivers final response
     ],
 )

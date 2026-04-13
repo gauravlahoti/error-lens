@@ -4,6 +4,7 @@ Design: Google Material Design pastel palette, consulting-grade typography.
 """
 
 import json
+import re
 from datetime import datetime
 from google.adk.tools import ToolContext
 from google.genai import types
@@ -72,6 +73,28 @@ def _conf_fg(v):
         return G_GREEN if f >= 0.80 else (G_YELLOW if f >= 0.60 else G_RED)
     except Exception:
         return G_BLUE
+
+
+def _clean_md(text: str) -> str:
+    """Strip markdown formatting for plain PDF rendering."""
+    text = str(text)
+    text = re.sub(r'\*\*[a-zA-Z]\.\*\*\s*', '', text)    # step labels **a.**
+    text = re.sub(r'\*\*([^*\n]+)\*\*', r'\1', text)      # bold
+    text = re.sub(r'\*([^*\n]+)\*', r'\1', text)           # italic
+    text = re.sub(r'`([^`\n]+)`', r'\1', text)             # inline code
+    text = re.sub(r'```\w*\n?', '', text)                  # fenced block open
+    text = re.sub(r'```', '', text)                        # fenced block close
+    return text.strip()
+
+
+_CMD_RE = re.compile(
+    r'^\s*(gcloud\s|kubectl\s|export\s+\w+=|set\s+\w+=|\$\s|helm\s|bq\s|gsutil\s|docker\s)'
+)
+
+
+def _is_cmd(line: str) -> bool:
+    """Return True if the line looks like a shell command."""
+    return bool(_CMD_RE.match(line))
 
 
 # ── PDF class ─────────────────────────────────────────────────────────────────
@@ -266,24 +289,49 @@ class PDF(FPDF):
         # — measure content height —
         inner_w = w - 20   # after 6px accent + 14px inner margin
 
+        clean_why = _clean_md(str(why)) if why else ""
         self.set_font("Helvetica", size=9)
-        why_lines = self.multi_cell(inner_w, 5.5, _s(str(why)),
-                                    split_only=True) if why else []
+        why_lines = self.multi_cell(inner_w, 5.5, _s(clean_why),
+                                    split_only=True) if clean_why else []
 
+        # Build step segments: ("prose", text) or ("code", [lines])
+        step_segments = []
         if isinstance(steps, list):
-            step_str = "\n".join(
-                f"  {i + 1}.  {_s(str(s))}" for i, s in enumerate(steps)
-            )
-        else:
-            step_str = _s(str(steps)) if steps else ""
+            for i, s in enumerate(steps):
+                clean_step = _clean_md(str(s))
+                prose_buf, code_buf = [], []
+                for ln in clean_step.splitlines():
+                    if _is_cmd(ln):
+                        if prose_buf:
+                            step_segments.append(("prose", f"  {i + 1}.  " + " ".join(prose_buf)))
+                            prose_buf = []
+                        code_buf.append(ln.strip())
+                    else:
+                        if code_buf:
+                            step_segments.append(("code", code_buf))
+                            code_buf = []
+                        if ln.strip():
+                            prose_buf.append(ln.strip())
+                if prose_buf:
+                    step_segments.append(("prose", f"  {i + 1}.  " + " ".join(prose_buf)))
+                if code_buf:
+                    step_segments.append(("code", code_buf))
+        elif steps:
+            step_segments.append(("prose", _clean_md(str(steps))))
 
-        self.set_font("Helvetica", size=9.5)
-        step_lines = self.multi_cell(inner_w, 5.5, step_str,
-                                     split_only=True) if step_str else []
+        # Estimate total step height
+        step_h_total = 0
+        self.set_font("Helvetica", size=9)
+        for seg_type, seg_data in step_segments:
+            if seg_type == "prose":
+                seg_lines = self.multi_cell(inner_w, 5.5, _s(seg_data), split_only=True)
+                step_h_total += len(seg_lines) * 5.5 + 2
+            else:
+                step_h_total += len(seg_data) * 5 + 14
 
         title_h = 10
         why_h   = len(why_lines) * 5.5 + (5 if why_lines else 0)
-        step_h  = len(step_lines) * 5.5 + (6 if step_lines else 0)
+        step_h  = step_h_total + (6 if step_segments else 0)
         meta_h  = 9
         card_h  = title_h + why_h + step_h + meta_h + 8
 
@@ -310,25 +358,42 @@ class PDF(FPDF):
         tx = x + 12
         self._txt(C_TEXT, size=11, style="B")
         self.set_xy(tx, y + 3)
-        self.cell(w - 14, title_h - 2, _s(title), new_x="LMARGIN", new_y="NEXT")
+        self.cell(w - 14, title_h - 2, _s(_clean_md(str(title))), new_x="LMARGIN", new_y="NEXT")
 
         # — "why recommended" in italic muted —
         if why_lines:
             self._txt(C_MUTED, size=9, style="I")
             self.set_x(tx)
-            self.multi_cell(inner_w, 5.5, _s(str(why)),
+            self.multi_cell(inner_w, 5.5, _s(clean_why),
                             new_x="LMARGIN", new_y="NEXT")
             self.ln(2)
 
-        # — steps —
-        if step_str:
-            self._txt(C_TEXT, size=9.5)
-            self.set_x(tx)
-            self.multi_cell(inner_w, 5.5, step_str,
-                            new_x="LMARGIN", new_y="NEXT")
+        # — steps (prose segments + inline code blocks for shell commands) —
+        for seg_type, seg_data in step_segments:
+            if seg_type == "prose":
+                self._txt(C_TEXT, size=9)
+                self.set_x(tx)
+                self.multi_cell(inner_w, 5.5, _s(seg_data),
+                                new_x="LMARGIN", new_y="NEXT")
+                self.ln(2)
+            else:  # code block
+                self.set_xy(tx, self.get_y())
+                code_text = "\n".join(seg_data)
+                display = code_text[:480] + (" [truncated]" if len(code_text) > 480 else "")
+                self.set_font("Courier", size=8)
+                cb_lines = self.multi_cell(inner_w, 5, _s(display), split_only=True)
+                cb_h = len(cb_lines) * 5 + 10
+                cx, cy = self.get_x(), self.get_y()
+                self._rect(cx, cy, inner_w, cb_h, C_CODE)
+                self.set_text_color(144, 238, 144)
+                self.set_xy(cx + 4, cy + 5)
+                self.multi_cell(inner_w - 8, 5, _s(display),
+                                new_x="LMARGIN", new_y="NEXT")
+                self.set_text_color(*C_TEXT)
+                self.ln(4)
 
         # — meta divider + confidence + source —
-        meta_y = y + card_h - meta_h
+        meta_y = max(y + card_h - meta_h, self.get_y() + 2)
         self.set_draw_color(*C_BORDER)
         self.set_line_width(0.2)
         self.line(x + 6, meta_y, x + w, meta_y)
@@ -346,7 +411,7 @@ class PDF(FPDF):
             self.cell(0, 5, src_label, new_x="LMARGIN", new_y="NEXT")
 
         self.set_text_color(*C_TEXT)
-        self.set_xy(x, y + card_h + 5)
+        self.set_xy(x, max(y + card_h + 5, self.get_y() + 5))
 
     # ── confidence summary bar ────────────────────────────────────────────
 
@@ -533,7 +598,13 @@ async def generate_pdf_report(tool_context: ToolContext) -> dict:
     pdf_bytes = bytes(pdf.output())
     version   = await tool_context.save_artifact(
         filename=filename,
-        artifact=types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
+        artifact=types.Part(
+            inline_data=types.Blob(
+                data=pdf_bytes,
+                mime_type="application/pdf",
+                display_name=filename,
+            )
+        ),
     )
 
     return {

@@ -73,6 +73,18 @@ class synthesis_result(BaseModel):
     fallback_guidance:   str              = Field(default="", description="What to investigate if all ranked fixes fail")
 
 
+class kb_record_input(BaseModel):
+    """Structured input for recording a new error into the knowledge bank."""
+    error_message:      str = Field(description="The raw error message verbatim")
+    error_summary:      str = Field(description="One-sentence normalized summary of the error")
+    gcp_service:        str = Field(description="Primary GCP service (e.g. Cloud Run, BigQuery)")
+    severity:           str = Field(description="One of: low, medium, high, critical")
+    root_cause:         str = Field(description="Explanation of why the error occurred")
+    suggested_fixes:    str = Field(description="Full synthesis_result serialized as a compact JSON string")
+    overall_confidence: str = Field(description="Confidence score 0.0-1.0 as decimal string, e.g. '0.87'")
+    project_id:         str = Field(description="GCP project ID from the orchestrator")
+
+
 class kb_record_result(BaseModel):
     """Structured output from the knowledge bank recorder agent."""
     case_ref: str = Field(description="Human-friendly case reference (e.g. EL-20260413-00001) of the newly recorded case")

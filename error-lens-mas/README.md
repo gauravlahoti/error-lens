@@ -25,7 +25,7 @@ RESOURCE_EXHAUSTED: Quota exceeded for quota metric
 5. Developer picks **"Run a full investigation"** → `root_agent` routes to `sage_pipeline`
 6. **deep_search_agent** runs GCP docs + community search in parallel
 7. **research_aggregator_agent** synthesises findings into ranked `synthesis_result`
-8. **kb_record_agent** delegates to `kb_record_remote` → records the case → returns `kb_record_result` with case ID
+8. **kb_record_pipeline** runs three steps: `kb_record_input_agent` extracts all required fields into a validated Pydantic record → `kb_record_caller_agent` transfers it to `kb_record_remote` → `kb_record_formatter_agent` extracts the returned case ID into `kb_record_result`
 9. **response_presenter_agent** formats the final diagnostic report including case ID and a PDF offer
 
 **Developer says "generate PDF"** → `generate_pdf_report` saves a consulting-grade PDF as an ADK Artifact to GCS; a download link appears in the chat.
@@ -54,8 +54,11 @@ root_agent (LlmAgent — router)
 │   │   ├── gcp_knowledge_agent (SequentialAgent)    GCP docs MCP search → formatter
 │   │   └── community_search_agent (SequentialAgent) web search → formatter
 │   ├── research_aggregator_agent (LlmAgent)    step 2 — synthesises ranked fixes
-│   ├── kb_record_agent (LlmAgent)              step 3 — records case, outputs case ID
-│   │   └── kb_record_remote (RemoteA2aAgent)      → Error KB Agent on Cloud Run
+│   ├── kb_record_pipeline (SequentialAgent)    step 3 — records case, outputs case ID
+│   │   ├── kb_record_input_agent (LlmAgent)       3a — extracts fields → kb_record_input schema
+│   │   ├── kb_record_caller_agent (LlmAgent)       3b — transfers to A2A remote
+│   │   │   └── kb_record_remote (RemoteA2aAgent)      → Error KB Agent on Cloud Run
+│   │   └── kb_record_formatter_agent (LlmAgent)   3c — extracts case_ref → kb_record_result
 │   └── response_presenter_agent (LlmAgent)     step 4 — formats diagnostic report
 │       └── generate_pdf_report (tool)              → ADK Artifact saved to GCS
 │
@@ -100,6 +103,8 @@ https://storage.googleapis.com/error-lens-pdf-reports/<ErrorLens_Diagnostic_Repo
 The `artifact_service` is configured in `config/artifact_service.py` and re-exported from `__init__.py` so ADK discovers it:
 - **Local dev** (`ARTIFACT_GCS_BUCKET` unset): uses `InMemoryArtifactService`
 - **Cloud Run** (`ARTIFACT_GCS_BUCKET=error-lens-pdf-reports`): uses `GcsArtifactService`
+
+**PDF quality:** The report strips all markdown formatting (bold markers, backticks, fenced code blocks) before rendering. Shell commands (`gcloud`, `kubectl`, `export`, etc.) are automatically detected in step text and rendered as dark monospace code blocks with green text — matching consulting-grade report standards. The artifact is saved with `Blob.display_name` set so the ADK web UI chat button shows the correct timestamped filename instead of "application.pdf".
 
 ---
 
@@ -253,8 +258,11 @@ curl https://<YOUR_MAS_URL>/.well-known/agent.json
 | `community_search_agent` | `SequentialAgent` | Runs web search then formats into `community_research_result` |
 | `deep_search_agent` | `ParallelAgent` | Runs GCP docs and community search concurrently |
 | `research_aggregator_agent` | `LlmAgent` | Aggregates research, ranks fixes, produces `synthesis_result` |
-| `kb_record_agent` | `LlmAgent` | Extracts fields from state, delegates to A2A, returns `kb_record_result` with case ID |
+| `kb_record_pipeline` | `SequentialAgent` | Three-step pipeline: extract fields → call A2A → structure case ref |
+| `kb_record_input_agent` | `LlmAgent` | Reads `error_triage_result` + `synthesis_result` from state; produces validated `kb_record_input` Pydantic record (all 8 required fields including `project_id`) |
+| `kb_record_caller_agent` | `LlmAgent` | Reads `kb_record_input` from state; transfers to `kb_record_remote`; writes raw A2A response to `kb_record_raw_response` |
 | `kb_record_remote` | `RemoteA2aAgent` | A2A connection to Error KB Agent for recording (triggers L2 log-error skill) |
+| `kb_record_formatter_agent` | `LlmAgent` | Extracts `EL-YYYYMMDD-NNNNN` case ref from `kb_record_raw_response`; produces `kb_record_result` |
 | `response_presenter_agent` | `LlmAgent` | Formats the final developer-facing diagnostic report with case tracking |
 | `kb_resolve_remote` | `RemoteA2aAgent` | Direct A2A transfer to Error KB Agent for case resolution and open case listing |
 | `generate_pdf_report` | Tool (async function) | Builds consulting-grade PDF from session state, saves as ADK Artifact to GCS |
@@ -265,15 +273,15 @@ curl https://<YOUR_MAS_URL>/.well-known/agent.json
 
 | Pattern | Where | Why |
 |---------|-------|-----|
-| `SequentialAgent` | `sage_pipeline`, `community_search_agent`, `gcp_knowledge_agent` | Preserves required execution order |
+| `SequentialAgent` | `sage_pipeline`, `kb_record_pipeline`, `community_search_agent`, `gcp_knowledge_agent` | Preserves required execution order |
 | `ParallelAgent` | `deep_search_agent` | Reduces latency by researching multiple sources concurrently |
 | `RemoteA2aAgent` | `kb_record_remote`, `kb_resolve_remote` | Connects to the Error KB Agent on Cloud Run via A2A protocol |
-| `LlmAgent` wrapper | `kb_record_agent` | Wraps remote agent to add `output_schema` and capture case ID in state |
-| `include_contents="none"` | `kb_search_agent`, `kb_record_agent`, `gcp_knowledge_formatter_agent`, `response_presenter_agent`, `research_aggregator_agent` | Forces agents to read only from ADK state keys, not full conversation history — reduces token usage |
-| `output_schema` | Signal extractor, formatters, aggregator, KB recorder | Enforces Pydantic models for structured inter-agent data flow |
+| output_schema / sub_agents split | `kb_record_pipeline`, `community_search_agent` | Gemini cannot use `output_schema` and function-calling tools (including `transfer_to_agent`) in the same agent turn. Solution: separate formatting steps (no tools, `output_schema` safe) from action steps (tools, no `output_schema`). |
+| `include_contents="none"` | All pipeline sub-agents | Forces agents to read only from ADK state keys, not full conversation history — reduces token usage |
+| `output_schema` | Signal extractor, formatters, aggregator, KB input/formatter agents | Enforces Pydantic models for structured inter-agent data flow |
 | `output_key` | All schema-producing agents | Writes structured output to session state for downstream agents |
 | `disallow_transfer_to_*` | All pipeline agents + KB search/record agents | Prevents early bailout — agents must complete their full response before returning |
-| ADK Artifacts | `generate_pdf_report` tool | Saves PDF bytes to GCS via `tool_context.save_artifact()`; ADK web UI renders a download link automatically |
+| ADK Artifacts | `generate_pdf_report` tool | Saves PDF bytes to GCS via `tool_context.save_artifact()` with `Blob.display_name` set; ADK web UI renders a correctly-named download link automatically |
 
 ---
 
@@ -284,8 +292,9 @@ curl https://<YOUR_MAS_URL>/.well-known/agent.json
 | `error_triage_result` | `signal_extractor_agent` | All downstream pipeline agents |
 | `gcp_knowledge_research_result` | `gcp_knowledge_formatter_agent` | `research_aggregator_agent` |
 | `community_research_result` | `web_search_formatter` | `research_aggregator_agent` |
-| `synthesis_result` | `research_aggregator_agent` | `kb_record_agent`, `response_presenter_agent`, `generate_pdf_report` |
-| `kb_record_result` | `kb_record_agent` | `response_presenter_agent`, `generate_pdf_report` (case ref) |
+| `synthesis_result` | `research_aggregator_agent` | `kb_record_input_agent`, `response_presenter_agent`, `generate_pdf_report` |
+| `kb_record_input` | `kb_record_input_agent` | `kb_record_caller_agent` — validated record with all 8 fields required by the KB agent |
+| `kb_record_result` | `kb_record_formatter_agent` | `response_presenter_agent`, `generate_pdf_report` (case ref) |
 
 All models are defined in `error_lens_agent/models.py`.
 
