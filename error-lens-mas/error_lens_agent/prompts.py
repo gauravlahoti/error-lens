@@ -355,7 +355,7 @@ Here is the data you need (already in session state):
   {{synthesis_result?}}
 
 Your one and only job:
-  1. Extract ALL of the following fields from session state:
+  1. Extract these seven fields from session state:
      - error_message:      from error_triage_result.error_message (the raw error text)
      - error_summary:      a one-sentence normalised summary of the error
      - gcp_service:        from error_triage_result.primary_service
@@ -368,12 +368,14 @@ Your one and only job:
                            overall_confidence, fallback_guidance, sources_agreed,
                            and sources_contradicted
      - overall_confidence: from synthesis_result.overall_confidence (as a decimal string)
-     - project_id:         "{GOOGLE_CLOUD_PROJECT}"  ← always use this exact value
 
-  2. Transfer to kb_record_remote with a message containing ALL eight
+  2. Use this hardcoded value — do NOT look for it in session state:
+     - project_id: "{GOOGLE_CLOUD_PROJECT}"
+
+  3. Transfer to kb_record_remote with a message containing ALL eight
      fields above. Every field is required — do not skip any.
 
-  3. Wait for kb_record_remote to respond with the actual case_ref.
+  4. Wait for kb_record_remote to respond with the actual case_ref.
      The case_ref returned by the knowledge bank is a human-friendly
      reference that looks like this:
        EL-20260413-00001
