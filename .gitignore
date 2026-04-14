@@ -48,6 +48,7 @@ node_modules/
 
 # Local notes
 pending_features.txt
+warmup.sh
 
 # Logs
 *.log

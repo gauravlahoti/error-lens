@@ -4,6 +4,7 @@ Design: Google Material Design pastel palette, consulting-grade typography.
 """
 
 import json
+import os
 import re
 from datetime import datetime
 from google.adk.tools import ToolContext
@@ -594,9 +595,21 @@ async def generate_pdf_report(tool_context: ToolContext) -> dict:
                  new_x="LMARGIN", new_y="NEXT")
         pdf.set_text_color(*C_TEXT)
 
-    # 4. Serialise and save artifact
+    # 4. Serialise PDF bytes
     pdf_bytes = bytes(pdf.output())
-    version   = await tool_context.save_artifact(
+
+    # 5. Upload directly to GCS for a stable public URL
+    gcs_url = None
+    bucket_name = os.environ.get("ARTIFACT_GCS_BUCKET")
+    if bucket_name:
+        from google.cloud import storage as gcs_storage
+        _client = gcs_storage.Client()
+        _blob = _client.bucket(bucket_name).blob(f"reports/{filename}")
+        _blob.upload_from_string(data=pdf_bytes, content_type="application/pdf")
+        gcs_url = f"https://storage.googleapis.com/{bucket_name}/reports/{filename}"
+
+    # 6. Also save via ADK artifact system (populates the Artifacts panel in adk web UI)
+    version = await tool_context.save_artifact(
         filename=filename,
         artifact=types.Part(
             inline_data=types.Blob(
@@ -607,8 +620,14 @@ async def generate_pdf_report(tool_context: ToolContext) -> dict:
         ),
     )
 
+    if gcs_url:
+        message = f"PDF saved as '{filename}'. Download: {gcs_url}"
+    else:
+        message = f"PDF saved as '{filename}'. A download link has appeared in the chat."
+
     return {
         "filename": filename,
-        "version":  version,
-        "message":  f"PDF saved as '{filename}'. A download link has appeared in the chat.",
+        "version":  version + 1,
+        "gcs_url":  gcs_url,
+        "message":  message,
     }
