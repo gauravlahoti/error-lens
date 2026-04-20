@@ -41,12 +41,33 @@ kb_record_caller_agent = LlmAgent(
     ),
     instruction=kb_record_instruction,
     include_contents="none",
-    output_key="kb_record_raw_response",
     sub_agents=[kb_record_remote],
     after_model_callback=make_token_tracker(MODEL_BALANCED_NAME),
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
 )
+
+
+def _capture_a2a_response(callback_context):
+    """Bridge: read kb_record_remote's response from session events → state.
+
+    transfer_to_agent is a permanent handoff in ADK — kb_record_caller_agent
+    never gets a second turn after kb_record_remote completes, so output_key
+    on the caller is never set. This callback runs before kb_record_formatter_agent
+    and populates kb_record_raw_response from the session event log instead.
+    """
+    try:
+        events = callback_context.invocation_context.session.events
+        for event in reversed(events):
+            if event.author == "kb_record_remote" and event.content:
+                parts = event.content.parts or []
+                text = " ".join(p.text for p in parts if getattr(p, "text", None))
+                if text:
+                    callback_context.state["kb_record_raw_response"] = text
+                    break
+    except Exception:
+        pass  # formatter falls back to RECORDING_PENDING if state is still empty
+
 
 # Step 3: extracts case_ref from the A2A raw text response into structured output
 kb_record_formatter_agent = LlmAgent(
@@ -57,12 +78,13 @@ kb_record_formatter_agent = LlmAgent(
     include_contents="none",
     output_schema=kb_record_result,
     output_key="kb_record_result",
+    before_agent_callback=_capture_a2a_response,
     after_model_callback=make_token_tracker(MODEL_FAST_NAME),
 )
 
 kb_record_pipeline = SequentialAgent(
     name="kb_record_pipeline",
-    description="Records new case: extract fields → call A2A → structure case_ref.",
+    description="Records new case: extract fields → A2A to KB agent → structure case_ref.",
     sub_agents=[kb_record_input_agent, kb_record_caller_agent, kb_record_formatter_agent],
 )
 
