@@ -18,8 +18,8 @@ class error_triage_result(BaseModel):
     primary_service:          str       = Field(default="unknown", description="Primary GCP service most likely owning the incident (e.g. Cloud Run, GKE, BigQuery)")
     related_services:         list[str] = Field(default_factory=list, description="Additional GCP services involved in the incident, excluding primary_service")
     severity:                 str       = Field(default="medium", description="Estimated severity: low, medium, high, critical")
-    docs_search_queries:      list[str] = Field(default_factory=list, description="2-3 optimised search queries for official GCP documentation and MCP lookup")
-    community_search_queries: list[str] = Field(default_factory=list, description="2-3 optimised search queries for Stack Overflow, GitHub, Reddit, blogs, and community forums")
+    docs_search_queries:      list[str] = Field(default_factory=list, description="2 optimised search queries for official GCP documentation and MCP lookup")
+    community_search_queries: list[str] = Field(default_factory=list, description="2 optimised search queries for Stack Overflow, GitHub, Reddit, blogs, and community forums")
 
 
 class research_hit(BaseModel):
